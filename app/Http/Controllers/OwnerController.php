@@ -14,11 +14,34 @@ class OwnerController extends Controller
     public function index(Request $request)
     {
         try {
-            $owner = Owner::where('status', 'active')->latest()->paginate(10);
 
-            if ($request->has('search')) {
-                $query->where('account_name', 'like', "%$search%");
+            // Start a Query Builder/ Prepares only
+            $query = Owner::query();
+
+            // ALWAYS FILTER ACTIVE OWNERS
+            $query->where('status', 'active');
+
+            // APPLIES SEARCH FILTERING
+            if ($request->filled('search')) 
+            {
+                $search = $request->search;
+
+                $query->where(function ($q) use ($search) {
+                        $q->where('account_name', 'like', "%{$search}%")
+                        ->orWhere('account_number', 'like', "%{$search}%")
+                        ->orWhere('bank_details', 'like', "%{$search}%");
+                    });
             }
+
+            // Orders & Paginates Results
+            $owners = $query->latest()->paginate(10);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Owners retrieved successfully',
+                'data' => $owners
+            ]);
+
         }
         catch (\Exception $e) {
             return response()->json([

@@ -28,6 +28,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::patch('/owner/{id}/archive', [OwnerController::class, 'archive']);
     Route::patch('/owner/{id}/restore', [OwnerController::class, 'restore']);
     Route::get('/owner/{id}', [OwnerController::class, 'show']);
+    Route::get('/owner', [OwnerController::class, 'index']);
 });
 
 
