@@ -22,7 +22,13 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'role'
+        'role',
+        'account_status',
+        'password_expires_at',
+        'is_password_expired',
+        'last_password_change',
+        'suspended_at',
+        'suspended_reason'
     ];
 
     /**

@@ -74,6 +74,17 @@ class AuthController extends Controller
         }
 
         $user = Auth::user();
+        
+        // Refresh user data from database to get all fields
+        $user = User::find($user->id);
+        
+        // Debug logging
+        \Log::info('Backend Debug - User data before response:', [
+            'user_id' => $user->id,
+            'user_role' => $user->role,
+            'user_account_status' => $user->account_status,
+            'user_object' => $user->toArray()
+        ]);
 
         // Clear password expiration on successful login
         if ($user->password_expires_at || $user->account_status === 'pending') {
@@ -102,7 +113,7 @@ class AuthController extends Controller
             }
         }
 
-        return response()->json([
+        $responseData = [
             'success' => true,
             'message' => 'Login successful',
             'data' => [
@@ -121,7 +132,12 @@ class AuthController extends Controller
                     'updated_at' => $user->updated_at,
                 ]
             ]
-        ]);
+        ];
+        
+        // Debug the response data
+        \Log::info('Backend Debug - Response data:', $responseData);
+        
+        return response()->json($responseData);
     }
 
     /**
