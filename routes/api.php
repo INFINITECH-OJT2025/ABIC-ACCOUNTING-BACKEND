@@ -3,7 +3,8 @@
 use App\Http\Controllers\AuthController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\OwnerController;
-use App\Http\Controllers\BanksController;
+use App\Http\Controllers\BankController;
+use App\Http\Controllers\BankAccountController;
 
 
 Route::middleware('api')->group(function () {
@@ -33,12 +34,21 @@ Route::middleware(['auth:sanctum'])->group(function () {
 });
 
 Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/bank', [BanksController::class, 'createBank']);
-    Route::put('/bank/{id}', [BanksController::class, 'updateBankName']);
-    Route::get('/bank', [BanksController::class, 'index']);
-    Route::get('/bank/{id}', [BanksController::class, 'show']);
-    Route::patch('/bank/{id}/archive', [BanksController::class, 'archiveBank']);
-    Route::patch('/bank/{id}/restore', [BanksController::class, 'restoreBank']);
+    Route::post('/bank', [BankController::class, 'createBank']);
+    Route::put('/bank/{id}', [BankController::class, 'updateBankName']);
+    Route::get('/bank', [BankController::class, 'index']);
+    Route::get('/bank/{id}', [BankController::class, 'show']);
+    Route::patch('/bank/{id}/archive', [BankController::class, 'archiveBank']);
+    Route::patch('/bank/{id}/restore', [BankController::class, 'restoreBank']);
+});
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::post('/banks', [BankController::class, 'store']);
+    Route::post('/bank-accounts', [BankAccountController::class, 'createBankAccount']);
+    Route::put('/bank-accounts/{id}', [BankAccountController::class, 'updateBankAccount']);
+    Route::patch('/bank-accounts/{id}/archive', [BankAccountController::class, 'archiveBank']);
+    Route::patch('/bank-accounts/{id}/restore', [BankAccountController::class, 'restoreBank']);
+
 });
 
 

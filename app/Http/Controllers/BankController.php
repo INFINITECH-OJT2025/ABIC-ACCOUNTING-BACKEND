@@ -2,17 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\Request;
 use App\Models\Bank;
-use Illuminate\Http\Request;    
-use \Exception;
 
-
-class BanksController extends Controller
+class BankController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+public function index()
     {
         try {
 
