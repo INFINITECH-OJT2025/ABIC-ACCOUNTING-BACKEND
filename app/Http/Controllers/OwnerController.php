@@ -209,8 +209,7 @@ class OwnerController extends Controller
                 return response()->json(['error' => 'Owner already archived'], 400);
             }
 
-            $owner->status = 'archived';
-            $owner->save();
+            $owner->update(['status' => 'archived']);
 
             return response()->json([
                 'success' => true,

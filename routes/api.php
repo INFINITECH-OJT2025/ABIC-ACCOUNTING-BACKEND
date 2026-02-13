@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\OwnerController;
+use App\Http\Controllers\BanksController;
 
 
 Route::middleware('api')->group(function () {
@@ -31,6 +32,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/owner', [OwnerController::class, 'index']);
 });
 
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::post('/bank', [BanksController::class, 'createBank']);
+    Route::put('/bank/{id}', [BanksController::class, 'updateBankName']);
+    Route::get('/bank', [BanksController::class, 'index']);
+    Route::get('/bank/{id}', [BanksController::class, 'show']);
+    Route::patch('/bank/{id}/archive', [BanksController::class, 'archiveBank']);
+    Route::patch('/bank/{id}/restore', [BanksController::class, 'restoreBank']);
+});
 
 
 
