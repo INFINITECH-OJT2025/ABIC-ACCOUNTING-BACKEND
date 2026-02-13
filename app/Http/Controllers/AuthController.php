@@ -11,6 +11,51 @@ use Illuminate\Support\Facades\Log;
 class AuthController extends Controller
 {
     /**
+     * Get login information for GET requests
+     */
+    public function loginInfo(Request $request)
+    {
+        return response()->json([
+            'message' => 'Please use POST /api/login for authentication',
+            'login_endpoint' => '/api/login',
+            'method' => 'POST'
+        ], 401);
+    }
+
+    /**
+     * Simple test route without authentication
+     */
+    public function testSimple(Request $request)
+    {
+        return response()->json([
+            'message' => 'Simple test route works!',
+            'timestamp' => now()->toISOString(),
+            'laravel_version' => app()->version(),
+        ]);
+    }
+
+    /**
+     * Test route for debugging authentication
+     */
+    public function testAuth(Request $request)
+    {
+        return response()->json([
+            'authenticated' => $request->user() !== null,
+            'user' => $request->user() ? [
+                'id' => $request->user()->id,
+                'name' => $request->user()->name,
+                'email' => $request->user()->email,
+                'role' => $request->user()->role,
+            ] : null,
+            'headers' => [
+                'authorization' => $request->header('Authorization'),
+                'cookie' => $request->header('Cookie') ? substr($request->header('Cookie'), 0, 100) . '...' : null,
+            ],
+            'sanctum_token' => $request->bearerToken(),
+        ]);
+    }
+
+    /**
      * Handle login request with password expiration and account status checks
      */
     public function login(Request $request)
@@ -86,8 +131,24 @@ class AuthController extends Controller
             'user_object' => $user->toArray()
         ]);
 
-        // Clear password expiration on successful login
-        if ($user->password_expires_at || $user->account_status === 'pending') {
+        // Check if password change is required
+        $requiresPasswordChange = false;
+        if ($user->role === 'admin' && $user->last_password_change === null) {
+            $requiresPasswordChange = true;
+        }
+        
+        // Check if password is expired
+        if ($user->password_expires_at && now()->greaterThan($user->password_expires_at)) {
+            $requiresPasswordChange = true;
+        }
+
+        // Check if account is pending (first-time admin)
+        if ($user->role === 'admin' && $user->account_status === 'pending') {
+            $requiresPasswordChange = true;
+        }
+
+        // Clear password expiration on successful login (but not for first-time admin login)
+        if (($user->password_expires_at || $user->account_status === 'pending') && !$requiresPasswordChange) {
             $this->clearPasswordExpiration($user);
         }
 
@@ -107,10 +168,10 @@ class AuthController extends Controller
             'logged_in_at' => now()
         ]);
 
-        if ($user->password_expires_at || $user->account_status ==='pending') {
-            if ($user->role !== 'super_admin') {
-                $this->clearPasswordExpiration($user);
-            }
+        // Don't auto-activate account on first login - let password change handle it
+        // Only clear password expiration if not requiring password change
+        if (($user->password_expires_at || $user->account_status === 'pending') && !$requiresPasswordChange) {
+            $this->clearPasswordExpiration($user);
         }
 
         $responseData = [
@@ -127,6 +188,7 @@ class AuthController extends Controller
                     'role' => $user->role,
                     'account_status' => $user->account_status,
                     'first_login' => $user->last_password_change === null,
+                    'requires_password_change' => $requiresPasswordChange,
                     'email_verified_at' => $user->email_verified_at,
                     'created_at' => $user->created_at,
                     'updated_at' => $user->updated_at,

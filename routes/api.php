@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AccountantController;
+use App\Http\Controllers\AdminController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -25,15 +26,20 @@ RateLimiter::for('api', function (Request $request) {
 });
 
 // Public routes with rate limiting
-Route::middleware(['api', 'throttle:auth'])->group(function () {
+Route::middleware(['throttle:auth'])->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/login', [AuthController::class, 'loginInfo'])->name('login');
 });
+
+// Test routes for debugging
+Route::get('/test-simple', [AuthController::class, 'testSimple']);
+Route::get('/test-auth', [AuthController::class, 'testAuth'])->middleware('auth:sanctum');
 
 // Authenticated routes with standard API rate limiting
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
-    Route::post('/change-password', [AuthController::class, 'changePassword']); // Add this line
+    Route::post('/change-password', [AuthController::class, 'changePassword']);
     
     // Admin-only routes
     Route::middleware(['role:super_admin'])->group(function () {
@@ -41,6 +47,15 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             return response()->json([
                 'message' => 'Super Admin Access Granted'
             ]);
+        });
+        
+        // Admin account management routes
+        Route::prefix('admin/accounts')->group(function () {
+            Route::get('/', [AdminController::class, 'index']);
+            Route::post('/', [AdminController::class, 'store']);
+            Route::get('/{id}', [AdminController::class, 'show']);
+            Route::put('/{id}', [AdminController::class, 'update']);
+            Route::delete('/{id}', [AdminController::class, 'destroy']);
         });
     });
     
