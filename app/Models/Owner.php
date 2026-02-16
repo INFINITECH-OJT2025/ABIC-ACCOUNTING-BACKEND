@@ -15,4 +15,15 @@ class Owner extends Model
         'bank_details',
         'status',
     ];
+
+    public function transactions()
+    {
+        return $this->hasMany(BankTransaction::class);
+    }
+
+    public function transactionAttachments()
+    {
+        return $this->hasMany(BankTransactionAttachment::class);
+    }
+
 }

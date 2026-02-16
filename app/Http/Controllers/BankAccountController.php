@@ -8,6 +8,26 @@ use App\Models\BankAccount;
 
 class BankAccountController extends Controller
 {
+
+    public function show($id)
+    {
+        $account = BankAccount::find($id);
+
+        if (!$account) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bank account not found',
+                'data' => null
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Bank account retrieved successfully',
+            'data' => $account
+        ], 200);
+    }
+
     public function createBankAccount(Request $request)
     {
         // Validate request data

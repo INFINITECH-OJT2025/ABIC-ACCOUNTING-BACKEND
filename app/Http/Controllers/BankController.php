@@ -39,6 +39,25 @@ public function index()
         }
     }
 
+    public function selectBank() {
+        $banks = Bank::where('status', 'active')->get();
+
+        if (Bank::where('status', 'active')->count() === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No active banks available. Please create a bank first.',
+                'data' => null
+            ], 400);
+        }
+
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Active banks retrieved successfully',
+            'data' => $banks
+        ]);
+    }
+
     /**
      * Store a newly created resource in storage.
      */
