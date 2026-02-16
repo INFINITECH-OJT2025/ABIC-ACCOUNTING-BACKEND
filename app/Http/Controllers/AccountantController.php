@@ -55,7 +55,7 @@ class AccountantController extends Controller
     {
         $user->password_expires_at = now()->addMinutes(30);
         $user->is_password_expired = false;
-        $user->account_status = 'pending';
+        $user->account_status = 'inactive';
         $user->save();
     }
 
@@ -125,7 +125,7 @@ class AccountantController extends Controller
                 'password' => $hashedPassword,
                 'role' => 'accountant',
                 'email_verified_at' => now(), // Auto-verify since we're sending credentials
-                'account_status' => 'pending'
+                'account_status' => 'inactive'
             ]);
 
             // Set password expiration

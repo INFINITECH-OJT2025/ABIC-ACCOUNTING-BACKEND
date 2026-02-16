@@ -118,7 +118,8 @@
 
         <div class="warning">
             <strong>⚠️ Important Security Notice:</strong><br>
-            Your account will be fully activated after you change your password. You will be required to change your password upon first login for security purposes. Please change it to a strong, unique password that you can remember.
+            <strong>Email Verification:</strong> Your email address will be automatically verified when you log in with these credentials for the first time. This login serves as your email verification.<br><br>
+            <strong>Password Change Required:</strong> You will be required to change your password upon first login for security purposes. Please change it to a strong, unique password that you can remember.
         </div>
 
         <p style="text-align: center;">

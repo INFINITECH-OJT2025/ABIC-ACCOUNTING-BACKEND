@@ -44,7 +44,7 @@ class AdminController extends Controller
             // Status filter
             if ($request->filled('status') && $request->input('status') !== 'all') {
                 $status = $request->input('status');
-                $query->where('account_status', $status === 'Active' ? 'active' : ($status === 'Inactive' ? 'pending' : 'suspended'));
+                $query->where('account_status', $status === 'Active' ? 'active' : ($status === 'Inactive' ? 'inactive' : 'suspended'));
             }
 
             // Date range filter
@@ -85,7 +85,7 @@ class AdminController extends Controller
             // Transform data for frontend
             $transformedAdmins = $admins->map(function ($admin) {
                 $status = 'Active';
-                if ($admin->account_status === 'pending') {
+                if ($admin->account_status === 'inactive') {
                     $status = 'Inactive';
                 } elseif ($admin->account_status === 'suspended') {
                     $status = 'Suspended';
@@ -176,9 +176,8 @@ class AdminController extends Controller
                 'email' => $request->input('email'),
                 'password' => Hash::make($plainPassword),
                 'role' => 'admin',
-                'account_status' => 'pending', // Pending until password change
-                'email_verified_at' => now(),
-                'password_expires_at' => now()->addDays(7), // Must change password within 7 days
+                'account_status' => 'inactive', // Inactive until password change
+                'password_expires_at' => now()->addMinutes(30), // Must change password within 30 minutes
                 'is_password_expired' => false, // Will be true after first login
             ]);
 
@@ -258,7 +257,7 @@ class AdminController extends Controller
             $admin = User::where('role', 'admin')->findOrFail($id);
 
             $status = 'Active';
-            if ($admin->account_status === 'pending') {
+            if ($admin->account_status === 'inactive') {
                 $status = 'Inactive';
             } elseif ($admin->account_status === 'suspended') {
                 $status = 'Suspended';
@@ -363,7 +362,7 @@ class AdminController extends Controller
                 if ($status === 'Active') {
                     $updateData['account_status'] = 'active';
                 } elseif ($status === 'Inactive') {
-                    $updateData['account_status'] = 'pending';
+                    $updateData['account_status'] = 'inactive';
                 } elseif ($status === 'Suspended') {
                     $updateData['account_status'] = 'suspended';
                 }
@@ -382,7 +381,7 @@ class AdminController extends Controller
 
             // Transform response data
             $status = 'Active';
-            if ($admin->account_status === 'pending') {
+            if ($admin->account_status === 'inactive') {
                 $status = 'Inactive';
             } elseif ($admin->account_status === 'suspended') {
                 $status = 'Suspended';

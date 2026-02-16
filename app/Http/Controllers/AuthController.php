@@ -142,13 +142,25 @@ class AuthController extends Controller
             $requiresPasswordChange = true;
         }
 
-        // Check if account is pending (first-time admin)
-        if ($user->role === 'admin' && $user->account_status === 'pending') {
+        // Check if account is inactive (first-time admin)
+        if ($user->role === 'admin' && $user->account_status === 'inactive') {
             $requiresPasswordChange = true;
+            
+            // Set email_verified_at on first login (email verification)
+            if (!$user->email_verified_at) {
+                $user->email_verified_at = now();
+                $user->save();
+                
+                Log::info('Email verified on first admin login', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'email_verified_at' => now()
+                ]);
+            }
         }
 
         // Clear password expiration on successful login (but not for first-time admin login)
-        if (($user->password_expires_at || $user->account_status === 'pending') && !$requiresPasswordChange) {
+        if (($user->password_expires_at || $user->account_status === 'inactive') && !$requiresPasswordChange) {
             $this->clearPasswordExpiration($user);
         }
 
@@ -170,7 +182,7 @@ class AuthController extends Controller
 
         // Don't auto-activate account on first login - let password change handle it
         // Only clear password expiration if not requiring password change
-        if (($user->password_expires_at || $user->account_status === 'pending') && !$requiresPasswordChange) {
+        if (($user->password_expires_at || $user->account_status === 'inactive') && !$requiresPasswordChange) {
             $this->clearPasswordExpiration($user);
         }
 
@@ -356,13 +368,15 @@ class AuthController extends Controller
             }
 
             // Update password
-            $user->update([
+            $updateData = [
                 'password' => Hash::make($validated['new_password']),
                 'password_expires_at' => null,
                 'is_password_expired' => false,
                 'last_password_change' => now(),
                 'account_status' => 'active'
-            ]);
+            ];
+            
+            $user->update($updateData);
 
             // Revoke all tokens (force re-login)
             $user->tokens()->delete();
