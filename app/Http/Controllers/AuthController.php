@@ -136,6 +136,9 @@ class AuthController extends Controller
         if ($user->role === 'admin' && $user->last_password_change === null) {
             $requiresPasswordChange = true;
         }
+        if ($user->role === 'employee' && $user->last_password_change === null) {
+            $requiresPasswordChange = true;
+        }
         
         // Check if password is expired
         if ($user->password_expires_at && now()->greaterThan($user->password_expires_at)) {
@@ -159,7 +162,24 @@ class AuthController extends Controller
             }
         }
 
-        // Clear password expiration on successful login (but not for first-time admin login)
+        // Check if account is inactive (first-time employee)
+        if ($user->role === 'employee' && $user->account_status === 'inactive') {
+            $requiresPasswordChange = true;
+            
+            // Set email_verified_at on first login (email verification)
+            if (!$user->email_verified_at) {
+                $user->email_verified_at = now();
+                $user->save();
+                
+                Log::info('Email verified on first employee login', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'email_verified_at' => now()
+                ]);
+            }
+        }
+
+        // Clear password expiration on successful login (but not for first-time admin/employee login)
         if (($user->password_expires_at || $user->account_status === 'inactive') && !$requiresPasswordChange) {
             $this->clearPasswordExpiration($user);
         }
@@ -181,7 +201,7 @@ class AuthController extends Controller
         ]);
 
         // Don't auto-activate account on first login - let password change handle it
-        // Only clear password expiration if not requiring password change
+        // Only clear password expiration if not requiring password change (for non-admin/employee)
         if (($user->password_expires_at || $user->account_status === 'inactive') && !$requiresPasswordChange) {
             $this->clearPasswordExpiration($user);
         }

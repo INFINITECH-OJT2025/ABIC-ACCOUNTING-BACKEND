@@ -13,13 +13,19 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
+            $table->string('name', 150);
             $table->string('email')->unique();
-            $table->string('role');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('role')->default('user');
+            $table->enum('account_status', ['pending', 'active', 'suspended', 'expired', 'inactive'])->default('pending');
+            $table->timestamp('password_expires_at')->nullable();
+            $table->boolean('is_password_expired')->default(false);
+            $table->timestamp('last_password_change')->nullable();
             $table->rememberToken();
             $table->timestamps();
+            $table->index('role');
+            $table->index('account_status');
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {

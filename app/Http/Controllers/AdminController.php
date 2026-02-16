@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\Employee;
 use App\Mail\AdminCredentialsMail;
+use App\Mail\AdminPromotionMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +32,7 @@ class AdminController extends Controller
                 'cookie_header' => $request->header('Cookie') ? 'Present' : 'Missing'
             ]);
 
-            $query = User::where('role', 'admin')->orderBy('created_at', 'desc');
+            $query = User::where('role', 'admin')->orderByRaw('COALESCE(role_changed_at, created_at) DESC');
 
             // Search functionality
             if ($request->filled('search')) {
@@ -49,10 +51,10 @@ class AdminController extends Controller
 
             // Date range filter
             if ($request->filled('date_from')) {
-                $query->whereDate('created_at', '>=', $request->input('date_from'));
+                $query->whereRaw('DATE(COALESCE(role_changed_at, created_at)) >= ?', [$request->input('date_from')]);
             }
             if ($request->filled('date_to')) {
-                $query->whereDate('created_at', '<=', $request->input('date_to'));
+                $query->whereRaw('DATE(COALESCE(role_changed_at, created_at)) <= ?', [$request->input('date_to')]);
             }
 
             // Email existence check
@@ -96,8 +98,7 @@ class AdminController extends Controller
                     'name' => $admin->name,
                     'email' => $admin->email,
                     'status' => $status,
-                    'activated_at' => $admin->email_verified_at?->format('Y-m-d\TH:i:s\Z'),
-                    'created_at' => $admin->created_at->format('Y-m-d\TH:i:s\Z'),
+                    'promoted_at' => $admin->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
                     'updated_at' => $admin->updated_at->format('Y-m-d\TH:i:s\Z'),
                 ];
             });
@@ -123,6 +124,156 @@ class AdminController extends Controller
                 'success' => false,
                 'message' => 'Failed to retrieve admin accounts',
                 'errors' => null
+            ], 500);
+        }
+    }
+
+    /**
+     * Promote an approved employee to admin.
+     */
+    public function promoteFromEmployee(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'employee_id' => ['required', 'integer', 'exists:employees,id'],
+            ], [
+                'employee_id.required' => 'Employee ID is required',
+                'employee_id.exists' => 'Employee not found',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $employee = Employee::with('user')->findOrFail($request->input('employee_id'));
+
+            if ($employee->status !== 'approved') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only approved employees can be promoted to admin',
+                    'errors' => null,
+                ], 422);
+            }
+
+            if (!$employee->user_id || !$employee->user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Employee has no linked user account',
+                    'errors' => null,
+                ], 422);
+            }
+
+            $user = $employee->user;
+
+            if ($user->role === 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This employee is already an admin',
+                    'errors' => null,
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            $user->update([
+                'role' => 'admin',
+                'role_changed_at' => now(),
+                'name' => trim(($employee->first_name ?? '') . ' ' . ($employee->middle_name ?? '') . ' ' . ($employee->last_name ?? '')),
+            ]);
+
+            DB::commit();
+
+            // Send promotion notification email
+            try {
+                Mail::to($user->email)->send(new AdminPromotionMail($user->fresh()));
+                Log::info('Admin promotion email sent', ['user_email' => $user->email]);
+            } catch (\Exception $e) {
+                Log::error('Failed to send admin promotion email', [
+                    'user_email' => $user->email,
+                    'error' => $e->getMessage(),
+                ]);
+                // Continue - promotion succeeded even if email fails
+            }
+
+            $status = 'Active';
+            if ($user->account_status === 'inactive') {
+                $status = 'Inactive';
+            } elseif ($user->account_status === 'suspended') {
+                $status = 'Suspended';
+            }
+
+            $responseData = [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'status' => $status,
+                'promoted_at' => $user->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
+                'updated_at' => $user->updated_at->format('Y-m-d\TH:i:s\Z'),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Employee promoted to admin successfully',
+                'data' => $responseData,
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Admin promoteFromEmployee error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to promote employee to admin',
+                'errors' => null,
+            ], 500);
+        }
+    }
+
+    /**
+     * Revert an admin back to employee (revoke admin promotion).
+     */
+    public function revertToEmployee($id)
+    {
+        try {
+            $admin = User::where('role', 'admin')->findOrFail($id);
+
+            // Prevent reverting self
+            if ($admin->id === auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You cannot revert your own account',
+                    'errors' => null,
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            $admin->update([
+                'role' => 'employee',
+                'role_changed_at' => now(),
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Admin reverted to employee successfully',
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Admin account not found',
+                'errors' => null,
+            ], 404);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Admin revertToEmployee error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to revert admin to employee',
+                'errors' => null,
             ], 500);
         }
     }
@@ -207,8 +358,7 @@ class AdminController extends Controller
                 'name' => $admin->name,
                 'email' => $admin->email,
                 'status' => 'Inactive', // Shows as Inactive until password change
-                'activated_at' => $admin->email_verified_at?->format('Y-m-d\TH:i:s\Z'),
-                'created_at' => $admin->created_at->format('Y-m-d\TH:i:s\Z'),
+                'promoted_at' => $admin->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
                 'updated_at' => $admin->updated_at->format('Y-m-d\TH:i:s\Z'),
             ];
 
@@ -268,8 +418,7 @@ class AdminController extends Controller
                 'name' => $admin->name,
                 'email' => $admin->email,
                 'status' => $status,
-                'activated_at' => $admin->email_verified_at?->format('Y-m-d\TH:i:s\Z'),
-                'created_at' => $admin->created_at->format('Y-m-d\TH:i:s\Z'),
+                'promoted_at' => $admin->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
                 'updated_at' => $admin->updated_at->format('Y-m-d\TH:i:s\Z'),
             ];
 
@@ -392,8 +541,7 @@ class AdminController extends Controller
                 'name' => $admin->name,
                 'email' => $admin->email,
                 'status' => $status,
-                'activated_at' => $admin->email_verified_at?->format('Y-m-d\TH:i:s\Z'),
-                'created_at' => $admin->created_at->format('Y-m-d\TH:i:s\Z'),
+                'promoted_at' => $admin->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
                 'updated_at' => $admin->updated_at->format('Y-m-d\TH:i:s\Z'),
             ];
 

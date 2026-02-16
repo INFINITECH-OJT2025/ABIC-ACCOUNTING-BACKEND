@@ -394,8 +394,6 @@ class AccountantController extends Controller
             // Update user status
             $user->update([
                 'account_status' => 'suspended',
-                'suspended_at' => now(),
-                'suspended_reason' => $validated['reason']
             ]);
 
             // Log the suspension
@@ -414,8 +412,6 @@ class AccountantController extends Controller
                     'id' => $user->id,
                     'email' => $user->email,
                     'account_status' => $user->account_status,
-                    'suspended_at' => $user->suspended_at,
-                    'suspended_reason' => $user->suspended_reason
                 ]
             ]);
 
@@ -455,8 +451,6 @@ class AccountantController extends Controller
             // Update user status
             $user->update([
                 'account_status' => 'active',
-                'suspended_at' => null,
-                'suspended_reason' => null
             ]);
 
             // Log the unsuspension
