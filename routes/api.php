@@ -80,9 +80,11 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::middleware(['role:super_admin'])->prefix('accountant')->group(function () {
         Route::get('/', [AccountantController::class, 'index']);
         Route::post('/', [AccountantController::class, 'store']);
+        Route::post('/promote-from-employee', [AccountantController::class, 'promoteFromEmployee']);
         Route::get('/{id}', [AccountantController::class, 'show']);
         Route::put('/{id}', [AccountantController::class, 'update']);
         Route::delete('/{id}', [AccountantController::class, 'destroy']);
+        Route::post('/{id}/revert-to-employee', [AccountantController::class, 'revertToEmployee']);
         Route::post('/{id}/resend-credentials', [AccountantController::class, 'resendCredentials']);
         Route::post('/{id}/suspend', [AccountantController::class, 'suspend']);
         Route::post('/{id}/unsuspend', [AccountantController::class, 'unsuspend']);

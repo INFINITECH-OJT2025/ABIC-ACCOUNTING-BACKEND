@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Mail\AccountantCredentialsMail;
+use App\Mail\AccountantPromotionMail;
 
 class AccountantController extends Controller
 {
@@ -74,9 +78,31 @@ class AccountantController extends Controller
     // ✅ List all accountants
     public function index()
     {
-        $data = User::where('role', 'accountant')
-            ->latest()
-            ->get(['id', 'name', 'email', 'role', 'account_status', 'password_expires_at', 'last_password_change', 'created_at', 'updated_at']);
+        $users = User::where('role', 'accountant')
+            ->orderByRaw('COALESCE(role_changed_at, created_at) DESC')
+            ->get();
+
+        $data = $users->map(function ($user) {
+            $status = 'Active';
+            if ($user->account_status === 'inactive') {
+                $status = 'Inactive';
+            } elseif ($user->account_status === 'suspended') {
+                $status = 'Suspended';
+            } elseif ($user->account_status === 'pending') {
+                $status = 'Pending';
+            } elseif ($user->account_status === 'expired') {
+                $status = 'Expired';
+            }
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'status' => $status,
+                'account_status' => $user->account_status,
+                'promoted_at' => $user->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
+                'updated_at' => $user->updated_at->format('Y-m-d\TH:i:s\Z'),
+            ];
+        });
 
         return response()->json([
             'success' => true,
@@ -428,6 +454,153 @@ class AccountantController extends Controller
                 'success' => false,
                 'message' => 'Failed to suspend accountant due to server error',
                 'errors' => null
+            ], 500);
+        }
+    }
+
+    /**
+     * Promote an approved employee to accountant.
+     */
+    public function promoteFromEmployee(Request $request)
+    {
+        try {
+            $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+                'employee_id' => ['required', 'integer', 'exists:employees,id'],
+            ], [
+                'employee_id.required' => 'Employee ID is required',
+                'employee_id.exists' => 'Employee not found',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $employee = Employee::with('user')->findOrFail($request->input('employee_id'));
+
+            if ($employee->status !== 'approved') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only approved employees can be promoted to accountant',
+                    'errors' => null,
+                ], 422);
+            }
+
+            if (!$employee->user_id || !$employee->user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Employee has no linked user account',
+                    'errors' => null,
+                ], 422);
+            }
+
+            $user = $employee->user;
+
+            if ($user->role === 'accountant') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This employee is already an accountant',
+                    'errors' => null,
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            $user->update([
+                'role' => 'accountant',
+                'role_changed_at' => now(),
+                'name' => trim(($employee->first_name ?? '') . ' ' . ($employee->middle_name ?? '') . ' ' . ($employee->last_name ?? '')),
+            ]);
+
+            DB::commit();
+
+            try {
+                Mail::to($user->email)->send(new AccountantPromotionMail($user->fresh()));
+                Log::info('Accountant promotion email sent', ['user_email' => $user->email]);
+            } catch (\Exception $e) {
+                Log::error('Failed to send accountant promotion email', [
+                    'user_email' => $user->email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            $status = 'Active';
+            if ($user->account_status === 'inactive') {
+                $status = 'Inactive';
+            } elseif ($user->account_status === 'suspended') {
+                $status = 'Suspended';
+            }
+
+            $responseData = [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'status' => $status,
+                'promoted_at' => $user->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
+                'updated_at' => $user->updated_at->format('Y-m-d\TH:i:s\Z'),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Employee promoted to accountant successfully',
+                'data' => $responseData,
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Accountant promoteFromEmployee error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to promote employee to accountant',
+                'errors' => null,
+            ], 500);
+        }
+    }
+
+    /**
+     * Revert an accountant back to employee (revoke accountant promotion).
+     */
+    public function revertToEmployee($id)
+    {
+        try {
+            $accountant = User::where('role', 'accountant')->findOrFail($id);
+
+            if ($accountant->id === auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You cannot revert your own account',
+                    'errors' => null,
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            $accountant->update([
+                'role' => 'employee',
+                'role_changed_at' => now(),
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Accountant reverted to employee successfully',
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accountant account not found',
+                'errors' => null,
+            ], 404);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Accountant revertToEmployee error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to revert accountant to employee',
+                'errors' => null,
             ], 500);
         }
     }
