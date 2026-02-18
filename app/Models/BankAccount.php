@@ -10,14 +10,19 @@ class BankAccount extends Model
     use HasFactory;
 
     protected $fillable = [
-        'company_name',
+        'owner_id',
         'bank_id',
         'account_name',
         'account_number',
-        'contact_numbers',
-        'is_pmo',
+        'account_holder',
+        'account_type',
+        'opening_balance',
+        'opening_date',
+        'currency',
         'status',
+        'created_by'
     ];
+
 
     protected $casts = [
         'contact_numbers' => 'array',
@@ -28,4 +33,15 @@ class BankAccount extends Model
     {
         return $this->belongsTo(Bank::class);
     }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function owner()
+    {
+        return $this->belongsTo(Owner::class);
+    }
+
 }

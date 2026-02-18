@@ -4,14 +4,39 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Bank;
+use App\Models\Owner;
 use App\Models\BankAccount;
 
 class BankAccountController extends Controller
 {
 
+    public function index(Request $request)
+    {
+        $query = BankAccount::with(['bank', 'owner', 'creator']);
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+
+            $query->where(function ($q) use ($search) {
+                $q->where('account_name', 'like', "%{$search}%")
+                ->orWhere('account_number', 'like', "%{$search}%")
+                ->orWhere('account_holder', 'like', "%{$search}%");
+            });
+        }
+
+        $accounts = $query->latest()->paginate(10);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Bank accounts retrieved successfully',
+            'data' => $accounts
+        ]);
+    }
+
+
     public function show($id)
     {
-        $account = BankAccount::find($id);
+        $account = BankAccount::with(['bank', 'owner'])->find($id);
 
         if (!$account) {
             return response()->json([
@@ -25,39 +50,24 @@ class BankAccountController extends Controller
             'success' => true,
             'message' => 'Bank account retrieved successfully',
             'data' => $account
-        ], 200);
+        ]);
     }
 
-    public function createBankAccount(Request $request)
+    public function store(Request $request)
     {
-        // Validate request data
         $validated = $request->validate([
-            'company_name'      => ['required', 'string', 'min:3'],
-            'bank_id'           => ['required', 'exists:banks,id'],
-            'account_name'      => ['required', 'string', 'min:3'],
-            'account_number'    => ['required', 'string', 'unique:bank_accounts,account_number'],
-            'is_pmo'            => ['sometimes', 'boolean'],
-            'contact_numbers'   => ['nullable', 'array'],
-            'contact_numbers.*' => ['string', 'min:11'],
+            'owner_id'        => ['required', 'exists:owners,id'],
+            'bank_id'         => ['required', 'exists:banks,id'],
+            'account_name'    => ['required', 'string'],
+            'account_number'  => ['required', 'string', 'unique:bank_accounts,account_number'],
+            'account_holder'  => ['required', 'string'],
+            'account_type'    => ['required', 'string'],
+            'opening_balance' => ['required', 'numeric'],
+            'opening_date'    => ['required', 'date'],
+            'currency'        => ['required', 'string'],
         ]);
 
-        // Set default values for optional fields
-        $validated['status'] = 'active';
-        // If is_pmo is not provided, default to false
-        $validated['is_pmo'] = $validated['is_pmo'] ?? false;
-
-        // If PMO is true, contact numbers must be provided
-        if ($validated['is_pmo'] && empty($validated['contact_numbers'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Contact numbers are required for PMO accounts',
-                'data' => null
-            ], 422);
-        }
-
-        //  Check if the selected bank is active
         $bank = Bank::find($validated['bank_id']);
-
         if ($bank->status !== 'active') {
             return response()->json([
                 'success' => false,
@@ -65,6 +75,18 @@ class BankAccountController extends Controller
                 'data' => null
             ], 400);
         }
+
+        $owner = Owner::find($validated['owner_id']);
+        if ($owner->status !== 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Selected owner is inactive',
+                'data' => null
+            ], 400);
+        }
+
+        $validated['status'] = 'active';
+        $validated['created_by'] = auth()->id(); // authenticated user
 
         $account = BankAccount::create($validated);
 
@@ -75,10 +97,8 @@ class BankAccountController extends Controller
         ], 201);
     }
 
-
-    public function updateBankAccount(Request $request, $id)
+    public function update(Request $request, $id)
     {
-        // Find the bank account
         $account = BankAccount::find($id);
 
         if (!$account) {
@@ -89,53 +109,27 @@ class BankAccountController extends Controller
             ], 404);
         }
 
-        // Only allow updates if the account is active
         if ($account->status !== 'active') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot update archived account',
+                'message' => 'Cannot update inactive account',
                 'data' => null
             ], 400);
         }
 
-        // Validate request data
         $validated = $request->validate([
-            'company_name'      => ['required', 'string', 'min:3'],
-            'bank_id'           => ['required', 'exists:banks,id'],
-            'account_name'      => ['required', 'string', 'min:3'],
-            'account_number'    => ['required', 'string', 'unique:bank_accounts,account_number,' . $id],
-            'is_pmo'            => ['sometimes', 'boolean'],
-            'contact_numbers'   => ['nullable', 'array'],
-            'contact_numbers.*' => ['string', 'min:11'],
+            'owner_id'        => ['required', 'exists:owners,id'],
+            'bank_id'         => ['required', 'exists:banks,id'],
+            'account_name'    => ['required', 'string', 'min:2'],
+            'account_number'  => ['required', 'string', 'unique:bank_accounts,account_number,' . $id],
+            'account_holder'  => ['required', 'string', 'min:2'],
+            'account_type'    => ['required', 'string'],
+            'opening_balance' => ['required', 'numeric'],
+            'opening_date'    => ['required', 'date'],
+            'currency'        => ['required', 'string', 'max:10'],
         ]);
 
-        // Set default values for optional fields
-        $validated['is_pmo'] = $validated['is_pmo'] ?? $account->is_pmo;
-
-        // If PMO is true, contact numbers must be provided
-        if ($validated['is_pmo'] && empty($validated['contact_numbers'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Contact numbers are required for PMO accounts',
-                'data' => null
-            ], 422);
-        }
-
-        // Check if the selected bank is active
-        $bank = Bank::find($validated['bank_id']);
-
-        if ($bank->status !== 'active') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Selected bank is inactive',
-                'data' => null
-            ], 400);
-        }
-
-        // Update the bank account
         $account->update($validated);
-        // Refresh the model instance to get the latest data
-        $account->refresh();
 
         return response()->json([
             'success' => true,
@@ -144,8 +138,7 @@ class BankAccountController extends Controller
         ]);
     }
 
-
-    public function archiveBank($id)
+    public function inactive($id)
     {
         $account = BankAccount::find($id);
 
@@ -157,25 +150,24 @@ class BankAccountController extends Controller
             ], 404);
         }
 
-        if ($account->status === 'archived') {
+        if ($account->status === 'inactive') {
             return response()->json([
                 'success' => false,
-                'message' => 'Already archived',
+                'message' => 'Already inactive',
                 'data' => null
             ], 400);
         }
 
-        $account->update(['status' => 'archived']);
+        $account->update(['status' => 'inactive']);
 
         return response()->json([
             'success' => true,
-            'message' => 'Bank account archived successfully',
+            'message' => 'Bank account inactive successfully',
             'data' => $account
         ]);
     }
 
-
-    public function restoreBank($id)
+    public function restore($id)
     {
         $account = BankAccount::find($id);
 

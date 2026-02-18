@@ -6,38 +6,38 @@ use Illuminate\Http\Request;
 use App\Models\Bank;
 
 class BankController extends Controller
-{
-public function index()
-    {
-        try {
+{   
+    public function index()
+        {
+            try {
 
-            $query = Bank::query();
+                $query = Bank::query();
 
-            $query->where('status0', 'active');
+                $query->where('status0', 'active');
 
-            if ($request->filled('search')) {
-                $search = $request->search();
+                if ($request->filled('search')) {
+                    $search = $request->search();
 
-                $query->where(function ($q) use ($search) {
-                    $q->where('bank_name', 'like', "%{$search}%");
-                });
+                    $query->where(function ($q) use ($search) {
+                        $q->where('bank_name', 'like', "%{$search}%");
+                    });
+                }
+
+                $bank = $query->latest()->get();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Banks retrieved successfully',
+                    'data' => $bank,
+                ], 200);
+
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Something went wrong',
+                ], 500);
             }
-
-            $bank = $query->latest()->get();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Banks retrieved successfully',
-                'data' => $bank,
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Something went wrong',
-            ], 500);
         }
-    }
 
     public function selectBank() {
         $banks = Bank::where('status', 'active')->get();
@@ -66,7 +66,9 @@ public function index()
         try {
 
             $validated = $request->validate([
-                'bank_name' => ['required', 'string', 'min:3', 'unique:banks,bank_name'],
+                'bank_name' => ['required', 'string', 'min:2', 'unique:banks,bank_name'],
+                'short_name' => ['required', 'string', 'min:2'],
+                'country' =>  ['required', 'string', 'min:2'],
             ]);
 
             $bank = Bank::create($validated);
@@ -77,10 +79,13 @@ public function index()
                 'data' => $bank,
             ], 201);
 
-        } catch (\Exception $e) {
+        }         
+        catch (\Exception $e) {
             return response()->json([
-                'message' => 'Something went wrong',
-                'data' => null
+                'success' => false,
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
     }
@@ -93,7 +98,9 @@ public function index()
         try {
             
             $validated = $request->validate([
-                'bank_name' => ['required', 'string', 'min:3', 'unique:banks,bank_name,' . $id],
+                'bank_name' => ['required', 'string', 'min:2', 'unique:banks,bank_name,' . $id],
+                'short_name' => ['required', 'string', 'min:2'],
+                'country' =>  ['required', 'string', 'min:3'],
             ]);
 
             $bank = Bank::find($id);
@@ -122,16 +129,18 @@ public function index()
                 'data' => $bank,
             ]);
 
-        } catch (\Exception $e) {
+        }         
+        catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Something went wrong',
-                'data' => null
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
     }
 
-    public function archiveBank($id) {
+    public function inactive($id) {
 
         try {
 
@@ -145,33 +154,34 @@ public function index()
                 ], 404);
             }
 
-            if ($bank->status === 'archived') {
+            if ($bank->status === 'inactive') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Bank is already archived',
+                    'message' => 'Bank is already inactive',
                     'data' => null,
                 ], 400);
             }
 
-            $bank->update(['status' => 'archived']);
+            $bank->update(['status' => 'inactive']);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Bank archived successfully',
+                'message' => 'Bank inactive successfully',
                 'data' => $bank,
             ], 200);
 
-        } catch (\Exception $e) {
+        }         catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Something went wrong',
-                'data' => null
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
     }
 
 
-    public function restoreBank($id) 
+    public function restore($id) 
     {
         try {
 
@@ -201,11 +211,12 @@ public function index()
                 'data' => $bank,
             ], 200);
 
-        } catch (\Exception $e) {
+        }         catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Something went wrong',
-                'data' => null
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
     }
@@ -226,10 +237,10 @@ public function index()
                 ], 404);
             }
 
-            if ($bank->status === 'archived') {
+            if ($bank->status === 'inactive') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Bank is archived',
+                    'message' => 'Bank is inactive',
                     'data' => null
                 ], 403);
             }
@@ -240,11 +251,12 @@ public function index()
                 'data' => $bank
             ], 200);
 
-        } catch (\Exception $e) {
+        }         catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Something went wrong',
-                'data' => null
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
     }

@@ -7,6 +7,10 @@ use App\Http\Controllers\BankController;
 use App\Http\Controllers\BankAccountController;
 use App\Http\Controllers\BankTransactionController;
 use App\Http\Controllers\BankTransactionAttachmentController;
+use App\Http\Controllers\BankContactController;
+use App\Http\Controllers\BankContactChannelController;
+
+
 
 Route::middleware('api')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -39,21 +43,38 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/bank/{id}', [BankController::class, 'updateBankName']);
     Route::get('/bank', [BankController::class, 'index']);
     Route::get('/bank/{id}', [BankController::class, 'show']);
-    Route::patch('/bank/{id}/archive', [BankController::class, 'archiveBank']);
-    Route::patch('/bank/{id}/restore', [BankController::class, 'restoreBank']);
+    Route::patch('/bank/{id}/archive', [BankController::class, 'inactive']);
+    Route::patch('/bank/{id}/restore', [BankController::class, 'restore']);
     Route::get('/banks/select', [BankController::class, 'selectBank']);
-
 });
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/bank-accounts', [BankAccountController::class, 'index']);
-    Route::get('/bank-accounts/{id}', [BankAccountController::class, 'show']);
-    Route::post('/banks', [BankController::class, 'store']);
-    Route::post('/bank-accounts', [BankAccountController::class, 'createBankAccount']);
-    Route::put('/bank-accounts/{id}', [BankAccountController::class, 'updateBankAccount']);
-    Route::patch('/bank-accounts/{id}/archive', [BankAccountController::class, 'archiveBank']);
-    Route::patch('/bank-accounts/{id}/restore', [BankAccountController::class, 'restoreBank']);
+Route::prefix('bank-contact-channels')->group(function () {
+    Route::post('/', [BankContactChannelController::class, 'store']);
+    Route::get('/contact/{contactId}', [BankContactChannelController::class, 'index']);
+    Route::get('/{id}', [BankContactChannelController::class, 'show']);
+    Route::put('/{id}', [BankContactChannelController::class, 'update']);
+    Route::delete('/{id}', [BankContactChannelController::class, 'destroy']);
 });
+
+Route::prefix('bank-contacts')->group(function () {
+    Route::post('/', [BankContactController::class, 'store']);
+    Route::get('/', [BankContactController::class, 'index']);
+    Route::get('/{id}', [BankContactController::class, 'show']);
+    Route::put('/{id}', [BankContactController::class, 'update']);
+    Route::delete('/{id}', [BankContactController::class, 'destroy']);
+});
+
+
+Route::middleware(['auth:sanctum'])->prefix('bank-accounts')->group(function () {
+    Route::post('/', [BankAccountController::class, 'store']);
+    Route::get('/', [BankAccountController::class, 'index']);
+    Route::get('/{id}', [BankAccountController::class, 'show']);
+    Route::put('/{id}', [BankAccountController::class, 'update']);
+    Route::patch('/archive/{id}', [BankAccountController::class, 'archive']);
+    Route::patch('/restore/{id}', [BankAccountController::class, 'restore']);
+});
+
+
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/ledger/{bankAccountId}', [BankTransactionController::class, 'ledger']);
