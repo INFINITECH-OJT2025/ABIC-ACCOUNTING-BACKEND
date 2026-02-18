@@ -27,9 +27,11 @@ class OwnerController extends Controller
                 $search = $request->search;
 
                 $query->where(function ($q) use ($search) {
-                        $q->where('account_name', 'like', "%{$search}%")
-                        ->orWhere('account_number', 'like', "%{$search}%")
-                        ->orWhere('bank_details', 'like', "%{$search}%");
+                        $q->where('owner_type', 'like', "%{$search}%")
+                        ->orWhere('name', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone_number', 'like', "%{$search}%")
+                        ->orWhere('address', 'like', "%{$search}%");
                     });
             }
 
@@ -67,9 +69,11 @@ class OwnerController extends Controller
     {
         try {
             $validated = $request->validate([
-                'account_name' => ['required', 'string', 'min:2', 'max:255'],
-                'account_number' => ['required', 'string', 'min:2', 'unique:owners,account_number'],
-                'bank_details' => ['required', 'string', 'min:2'],
+                'owner_type' => ['required', 'string', 'max:255'],
+                'name' => ['required', 'string', 'min:2', 'unique:owners,name'],
+                'email' => ['required', 'email', 'unique:owners,email'],
+                'phone_number' => ['required', 'string', 'min:2' ],
+                'address' => ['required', 'string', 'min:2']
             ]);
 
             $validated['status'] = 'active';
@@ -82,14 +86,15 @@ class OwnerController extends Controller
                 'data'  => $owner
             ], 201);
             } 
-        catch (\Exception $e) 
-            {
-                return response()->json([
-                    'message' => 'Something went wrong',
-                    'success' => false,
-                    'data' => null
-                ], 500);
-            }
+        catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
+            ], 500);
+        }
+
     }
 
     /**
@@ -167,9 +172,11 @@ class OwnerController extends Controller
 
             //Validate data
             $validated = $request->validate([
-                'account_name' => ['required', 'string', 'min:2',],
-                'account_number' => ['required', 'string', 'min:2', 'unique:owners,account_number,' . $owner->id], 
-                'bank_details' => ['required', 'string', 'min:2'],
+                'owner_type' => ['required', 'string', 'min:2',],
+                'name' => ['required', 'string', 'min:2', 'unique:owners,name,' . $owner->id], 
+                'email' => ['required', 'string', 'min:2', 'unique:owners,name,'],
+                'phone_number' => ['required', 'string', 'min:2'],
+                'address' => ['required', 'string', 'min:2']
             ]);
 
             //Update data
@@ -185,14 +192,15 @@ class OwnerController extends Controller
         catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Something went wrong',
-                'data' => null
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
 
     }
 
-    public function archive($id) 
+    public function inactive($id) 
     {
         try {
             //Find the owner user id
@@ -205,11 +213,11 @@ class OwnerController extends Controller
             }
 
             //UPDATE!
-            if ($owner->status === 'archived') {
-                return response()->json(['error' => 'Owner already archived'], 400);
+            if ($owner->status === 'inactive') {
+                return response()->json(['error' => 'Owner already inactive'], 400);
             }
 
-            $owner->update(['status' => 'archived']);
+            $owner->update(['status' => 'inactive']);
 
             return response()->json([
                 'success' => true,
@@ -220,8 +228,9 @@ class OwnerController extends Controller
         catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Something went wrong',
-                'data' => null
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile()
             ], 500);
         }
     }

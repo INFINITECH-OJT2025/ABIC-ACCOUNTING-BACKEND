@@ -10,10 +10,16 @@ class Owner extends Model
     use HasFactory;
 
     protected $fillable = [
-        'account_name',
-        'account_number',
-        'bank_details',
+        'owner_type',
+        'name',
+        'email',
+        'phone_number',
+        'address',
         'status',
+        // 'account_name',
+        // 'account_number',
+        // 'bank_details',
+        // 'status',
     ];
 
     public function transactions()

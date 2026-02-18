@@ -28,7 +28,7 @@ Route::middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/owner', [OwnerController::class, 'createOwner']);
     Route::put('/owner/{id}', [OwnerController::class, 'update']);
-    Route::patch('/owner/{id}/archive', [OwnerController::class, 'archive']);
+    Route::patch('/owner/{id}/archive', [OwnerController::class, 'inactive']);
     Route::patch('/owner/{id}/restore', [OwnerController::class, 'restore']);
     Route::get('/owner/{id}', [OwnerController::class, 'show']);
     Route::get('/owner', [OwnerController::class, 'index']);
