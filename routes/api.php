@@ -9,6 +9,8 @@ use App\Http\Controllers\BankTransactionController;
 use App\Http\Controllers\BankTransactionAttachmentController;
 use App\Http\Controllers\BankContactController;
 use App\Http\Controllers\BankContactChannelController;
+use App\Http\Controllers\TransactionAttachmentController;
+use App\Http\Controllers\TransactionController;
 
 
 
@@ -76,25 +78,26 @@ Route::middleware(['auth:sanctum'])->prefix('bank-accounts')->group(function () 
 
 
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/ledger/{bankAccountId}', [BankTransactionController::class, 'ledger']);
-    Route::post('/bank-transactions', [BankTransactionController::class, 'createTransaction']);
-    Route::get('/bank-transactions', [BankTransactionController::class, 'index']);
-    Route::put('/bank-transactions/{id}', [BankTransactionController::class, 'updateTransaction']);
-    Route::patch('/bank-transactions/{id}/archive', [BankTransactionController::class, 'archiveTransaction']);
-    Route::patch('/bank-transactions/{id}/restore', [BankTransactionController::class, 'restoreTransaction']);
+Route::middleware(['auth:sanctum'])
+    ->prefix('transactions')
+    ->group(function () {
+
+        Route::get('/', [TransactionController::class, 'index']);
+        Route::post('/', [TransactionController::class, 'store']);
+        Route::get('/{id}', [TransactionController::class, 'show']);
+
 });
 
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::prefix('bank-accounts/{bankAccountId}')->group(function () {
 
-        Route::get('/transactions', [BankTransactionController::class, 'index']);
-        Route::post('/transactions', [BankTransactionController::class, 'store']);
-        Route::put('/transactions/{transactionId}', [BankTransactionController::class, 'update']);
-        Route::patch('/transactions/{transactionId}/archive', [BankTransactionController::class, 'archive']);
-        Route::patch('/transactions/{transactionId}/restore', [BankTransactionController::class, 'restore']);
-    });
+Route::middleware(['auth:sanctum'])
+    ->prefix('transaction-attachments')
+    ->group(function () {
+
+        Route::get('/transaction/{transactionId}', [TransactionAttachmentController::class, 'index']);
+        Route::post('/', [TransactionAttachmentController::class, 'store']);
+        Route::delete('/{id}', [TransactionAttachmentController::class, 'destroy']);
+
 });
 
 
