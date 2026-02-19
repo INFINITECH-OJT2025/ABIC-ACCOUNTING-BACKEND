@@ -4,11 +4,16 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AccountantController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\BankController;
+use App\Http\Controllers\BankContactController;
+use App\Http\Controllers\OwnerController;
+use App\Http\Controllers\UnitController;
+use App\Http\Controllers\PropertyController;
+use App\Http\Controllers\BankAccountController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Cache\RateLimiting\Limit;
 
-// Define custom rate limiters
 RateLimiter::for('auth', function (Request $request) {
     return Limit::perMinute(5)->by($request->ip())->response(function () {
         return response()->json([
@@ -26,37 +31,32 @@ RateLimiter::for('api', function (Request $request) {
         : Limit::perMinute(20)->by($request->ip());
 });
 
-// Public routes with rate limiting
 Route::middleware(['throttle:auth'])->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::get('/login', [AuthController::class, 'loginInfo'])->name('login');
 });
 
-// Test routes for debugging
 Route::get('/test-simple', [AuthController::class, 'testSimple']);
 Route::get('/test-auth', [AuthController::class, 'testAuth'])->middleware('auth:sanctum');
 
-// Authenticated routes with standard API rate limiting
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
 
-    // Employee self-service (role=employee) - MUST be before /employees/{id} so /me is not captured as id
     Route::middleware(['role:employee'])->prefix('employees')->group(function () {
         Route::get('/me', [EmployeeController::class, 'me']);
         Route::put('/me', [EmployeeController::class, 'updateMe']);
     });
     
-    // Admin-only routes
+
     Route::middleware(['role:super_admin'])->group(function () {
         Route::get('/admin-only', function () {
             return response()->json([
                 'message' => 'Super Admin Access Granted'
             ]);
         });
-        
-        // Admin account management routes
+
         Route::prefix('admin/accounts')->group(function () {
             Route::get('/', [AdminController::class, 'index']);
             Route::post('/', [AdminController::class, 'store']);
@@ -67,7 +67,6 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             Route::delete('/{id}', [AdminController::class, 'destroy']);
         });
 
-        // Employee management routes (super_admin only)
         Route::prefix('employees')->group(function () {
             Route::get('/', [EmployeeController::class, 'index']);
             Route::post('/', [EmployeeController::class, 'store']);
@@ -76,7 +75,6 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         });
     });
     
-    // Accountant management routes (admin access)
     Route::middleware(['role:super_admin'])->prefix('accountant')->group(function () {
         Route::get('/', [AccountantController::class, 'index']);
         Route::post('/', [AccountantController::class, 'store']);
@@ -88,6 +86,60 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::post('/{id}/resend-credentials', [AccountantController::class, 'resendCredentials']);
         Route::post('/{id}/suspend', [AccountantController::class, 'suspend']);
         Route::post('/{id}/unsuspend', [AccountantController::class, 'unsuspend']);
+
+        Route::prefix('maintenance/banks')->group(function () {
+            Route::get('/', [BankController::class, 'index']);
+            Route::post('/', [BankController::class, 'store']);
+            Route::get('/{id}', [BankController::class, 'show']);
+            Route::put('/{id}', [BankController::class, 'update']);
+            Route::delete('/{id}', [BankController::class, 'destroy']);
+
+            Route::prefix('{bankId}/contacts')->group(function () {
+                Route::get('/', [BankContactController::class, 'index']);
+                Route::post('/', [BankContactController::class, 'store']);
+            });
+        });
+
+        Route::prefix('maintenance/bank-contacts')->group(function () {
+            Route::get('/', [BankContactController::class, 'index']);
+            Route::post('/', [BankContactController::class, 'store']);
+            Route::get('/{id}', [BankContactController::class, 'show']);
+            Route::put('/{id}', [BankContactController::class, 'update']);
+            Route::delete('/{id}', [BankContactController::class, 'destroy']);
+        });
+
+        Route::prefix('maintenance/owners')->group(function () {
+            Route::get('/', [OwnerController::class, 'index']);
+            Route::post('/create-owner', [OwnerController::class, 'createOwner']);
+            Route::get('/{id}', [OwnerController::class, 'show']);
+            Route::put('/{id}', [OwnerController::class, 'update']);
+            Route::post('/{id}/inactive', [OwnerController::class, 'inactive']);
+            Route::post('/{id}/restore', [OwnerController::class, 'restore']);
+        });
+
+        Route::prefix('maintenance/properties')->group(function () {
+            Route::get('/', [PropertyController::class, 'index']);
+            Route::post('/create-property', [PropertyController::class, 'createProperty']);
+            Route::get('/{id}', [PropertyController::class, 'show']);
+            Route::put('/{id}', [PropertyController::class, 'update']);
+        });
+
+        Route::prefix('maintenance/units')->group(function () {
+            Route::get('/', [UnitController::class, 'index']);
+            Route::post('/', [UnitController::class, 'store']);
+            Route::get('/{id}', [UnitController::class, 'show']);
+            Route::put('/{id}', [UnitController::class, 'update']);
+            Route::delete('/{id}', [UnitController::class, 'destroy']);
+        });
+
+        Route::prefix('maintenance/bank-accounts')->group(function () {
+            Route::get('/', [BankAccountController::class, 'index']);
+            Route::post('/', [BankAccountController::class, 'store']);
+            Route::get('/{id}', [BankAccountController::class, 'show']);
+            Route::put('/{id}', [BankAccountController::class, 'update']);
+            Route::post('/{id}/inactive', [BankAccountController::class, 'inactive']);
+            Route::post('/{id}/restore', [BankAccountController::class, 'restore']);
+        });
     });
 });
 
