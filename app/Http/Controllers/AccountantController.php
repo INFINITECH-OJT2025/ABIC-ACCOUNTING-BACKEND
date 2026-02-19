@@ -76,11 +76,74 @@ class AccountantController extends Controller
     }
 
     // ✅ List all accountants
-    public function index()
+    public function index(Request $request)
     {
-        $users = User::where('role', 'accountant')
-            ->orderByRaw('COALESCE(role_changed_at, created_at) DESC')
-            ->get();
+        $query = User::where('role', 'accountant');
+
+        // Search functionality
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        // Status filter
+        if ($request->filled('status') && $request->input('status') !== 'all') {
+            $status = $request->input('status');
+            $query->where('account_status', $status === 'Active' ? 'active' : ($status === 'Inactive' ? 'inactive' : ($status === 'Suspended' ? 'suspended' : ($status === 'Pending' ? 'pending' : 'expired'))));
+        }
+
+        // Sorting
+        $sortBy = $request->input('sort_by', 'date'); // 'date' or 'name'
+        $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+        
+        if ($sortBy === 'date') {
+            // Sort by promoted date (newest first by default)
+            $query->orderByRaw('COALESCE(role_changed_at, created_at) ' . ($sortOrder === 'asc' ? 'ASC' : 'DESC'));
+        } elseif ($sortBy === 'name') {
+            // Sort alphabetically by name
+            $query->orderBy('name', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+        } else {
+            // Default: newest first
+            $query->orderByRaw('COALESCE(role_changed_at, created_at) DESC');
+        }
+
+        // Pagination
+        $perPage = $request->input('per_page', 10);
+        if ($perPage === 'all' || (is_numeric($perPage) && $perPage > 1000)) {
+            $users = $query->get();
+            $data = $users->map(function ($user) {
+                $status = 'Active';
+                if ($user->account_status === 'inactive') {
+                    $status = 'Inactive';
+                } elseif ($user->account_status === 'suspended') {
+                    $status = 'Suspended';
+                } elseif ($user->account_status === 'pending') {
+                    $status = 'Pending';
+                } elseif ($user->account_status === 'expired') {
+                    $status = 'Expired';
+                }
+                return [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'status' => $status,
+                    'account_status' => $user->account_status,
+                    'promoted_at' => $user->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
+                    'updated_at' => $user->updated_at->format('Y-m-d\TH:i:s\Z'),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Accountants retrieved successfully',
+                'data' => $data
+            ]);
+        }
+
+        $users = $query->paginate((int)$perPage);
 
         $data = $users->map(function ($user) {
             $status = 'Active';
@@ -107,7 +170,15 @@ class AccountantController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Accountants retrieved successfully',
-            'data' => $data
+            'data' => [
+                'data' => $data,
+                'current_page' => $users->currentPage(),
+                'last_page' => $users->lastPage(),
+                'per_page' => $users->perPage(),
+                'total' => $users->total(),
+                'from' => $users->firstItem(),
+                'to' => $users->lastItem(),
+            ]
         ]);
     }
 

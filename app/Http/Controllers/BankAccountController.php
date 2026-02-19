@@ -14,6 +14,18 @@ class BankAccountController extends Controller
     {
         $query = BankAccount::with(['bank', 'owner', 'creator']);
 
+        // Filter by status if provided, otherwise default to ACTIVE
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        } else {
+            $query->where('status', 'ACTIVE');
+        }
+
+        // Filter by account_type if provided
+        if ($request->filled('account_type') && $request->account_type !== 'ALL') {
+            $query->where('account_type', $request->account_type);
+        }
+
         if ($request->filled('search')) {
             $search = $request->search;
 
@@ -24,7 +36,34 @@ class BankAccountController extends Controller
             });
         }
 
-        $accounts = $query->latest()->paginate(10);
+        // Sorting
+        $sortBy = $request->input('sort_by', 'date'); // 'date' or 'name'
+        $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+        
+        if ($sortBy === 'date') {
+            // Sort by created_at (date promoted/created) - desc by default
+            $query->orderBy('created_at', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+        } elseif ($sortBy === 'name') {
+            // Sort alphabetically by account_name - asc by default
+            $query->orderBy('account_name', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+        } else {
+            // Default: newest first
+            $query->orderBy('created_at', 'DESC');
+        }
+
+        // Orders & Paginates Results
+        $perPage = $request->input('per_page', 10);
+        // If per_page is 'all' or a very large number, get all results without pagination
+        if ($perPage === 'all' || (is_numeric($perPage) && $perPage > 1000)) {
+            $accounts = $query->get();
+            return response()->json([
+                'success' => true,
+                'message' => 'Bank accounts retrieved successfully',
+                'data' => $accounts
+            ]);
+        }
+
+        $accounts = $query->paginate((int)$perPage);
 
         return response()->json([
             'success' => true,

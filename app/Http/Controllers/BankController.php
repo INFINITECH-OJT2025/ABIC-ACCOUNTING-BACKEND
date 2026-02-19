@@ -12,10 +12,56 @@ class BankController extends Controller
     /**
      * List all banks
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $banks = Bank::orderBy('name')->get();
+            $query = Bank::query();
+
+            // Filter by status if provided, otherwise default to ACTIVE
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            } else {
+                $query->where('status', 'ACTIVE');
+            }
+
+            // Apply search filtering
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('short_name', 'like', "%{$search}%")
+                        ->orWhere('country', 'like', "%{$search}%");
+                });
+            }
+
+            // Sorting
+            $sortBy = $request->input('sort_by', 'date'); // 'date' or 'name'
+            $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+            
+            if ($sortBy === 'date') {
+                // Sort by created_at (date created) - desc by default
+                $query->orderBy('created_at', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } elseif ($sortBy === 'name') {
+                // Sort alphabetically by name - asc by default
+                $query->orderBy('name', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } else {
+                // Default: newest first
+                $query->orderBy('created_at', 'DESC');
+            }
+
+            // Orders & Paginates Results
+            $perPage = $request->input('per_page', 10);
+            // If per_page is 'all' or a very large number, get all results without pagination
+            if ($perPage === 'all' || (is_numeric($perPage) && $perPage > 1000)) {
+                $banks = $query->get();
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Banks retrieved successfully',
+                    'data' => $banks
+                ]);
+            }
+            
+            $banks = $query->paginate((int)$perPage);
 
             return response()->json([
                 'success' => true,

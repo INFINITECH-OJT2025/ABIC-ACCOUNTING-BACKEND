@@ -32,7 +32,7 @@ class AdminController extends Controller
                 'cookie_header' => $request->header('Cookie') ? 'Present' : 'Missing'
             ]);
 
-            $query = User::where('role', 'admin')->orderByRaw('COALESCE(role_changed_at, created_at) DESC');
+            $query = User::where('role', 'admin');
 
             // Search functionality
             if ($request->filled('search')) {
@@ -57,6 +57,21 @@ class AdminController extends Controller
                 $query->whereRaw('DATE(COALESCE(role_changed_at, created_at)) <= ?', [$request->input('date_to')]);
             }
 
+            // Sorting
+            $sortBy = $request->input('sort_by', 'date'); // 'date' or 'name'
+            $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+            
+            if ($sortBy === 'date') {
+                // Sort by promoted date (newest first by default)
+                $query->orderByRaw('COALESCE(role_changed_at, created_at) ' . ($sortOrder === 'asc' ? 'ASC' : 'DESC'));
+            } elseif ($sortBy === 'name') {
+                // Sort alphabetically by name
+                $query->orderBy('name', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } else {
+                // Default: newest first
+                $query->orderByRaw('COALESCE(role_changed_at, created_at) DESC');
+            }
+
             // Email existence check
             if ($request->filled('check_email')) {
                 $email = $request->input('check_email');
@@ -79,10 +94,35 @@ class AdminController extends Controller
             }
 
             // Pagination
-            $page = $request->input('page', 1);
-            $limit = $request->input('limit', 20);
-            $total = $query->count();
-            $admins = $query->skip(($page - 1) * $limit)->take($limit)->get();
+            $perPage = $request->input('per_page', 10);
+            if ($perPage === 'all' || (is_numeric($perPage) && $perPage > 1000)) {
+                $admins = $query->get();
+                $transformedAdmins = $admins->map(function ($admin) {
+                    $status = 'Active';
+                    if ($admin->account_status === 'inactive') {
+                        $status = 'Inactive';
+                    } elseif ($admin->account_status === 'suspended') {
+                        $status = 'Suspended';
+                    }
+                    
+                    return [
+                        'id' => $admin->id,
+                        'name' => $admin->name,
+                        'email' => $admin->email,
+                        'status' => $status,
+                        'promoted_at' => $admin->role_changed_at?->format('Y-m-d\TH:i:s\Z'),
+                        'updated_at' => $admin->updated_at->format('Y-m-d\TH:i:s\Z'),
+                    ];
+                });
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Admin accounts retrieved successfully',
+                    'data' => $transformedAdmins
+                ]);
+            }
+
+            $admins = $query->paginate((int)$perPage);
 
             // Transform data for frontend
             $transformedAdmins = $admins->map(function ($admin) {
@@ -108,12 +148,12 @@ class AdminController extends Controller
                 'message' => 'Admin accounts retrieved successfully',
                 'data' => [
                     'data' => $transformedAdmins,
-                    'pagination' => [
-                        'page' => (int) $page,
-                        'limit' => (int) $limit,
-                        'total' => $total,
-                        'totalPages' => ceil($total / $limit)
-                    ]
+                    'current_page' => $admins->currentPage(),
+                    'last_page' => $admins->lastPage(),
+                    'per_page' => $admins->perPage(),
+                    'total' => $admins->total(),
+                    'from' => $admins->firstItem(),
+                    'to' => $admins->lastItem(),
                 ]
             ]);
 

@@ -17,8 +17,17 @@ class PropertyController extends Controller
             // Start a Query Builder
             $query = Property::query();
 
-            // ALWAYS FILTER ACTIVE PROPERTIES
-            $query->where('status', 'ACTIVE');
+            // Filter by status if provided, otherwise default to ACTIVE
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            } else {
+                $query->where('status', 'ACTIVE');
+            }
+
+            // Filter by property_type if provided
+            if ($request->filled('property_type') && $request->property_type !== 'ALL') {
+                $query->where('property_type', $request->property_type);
+            }
 
             // APPLIES SEARCH FILTERING
             if ($request->filled('search')) {
@@ -30,18 +39,33 @@ class PropertyController extends Controller
                 });
             }
 
+            // Sorting
+            $sortBy = $request->input('sort_by', 'date'); // 'date' or 'name'
+            $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+            
+            if ($sortBy === 'date') {
+                // Sort by created_at (date created) - desc by default
+                $query->orderBy('created_at', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } elseif ($sortBy === 'name') {
+                // Sort alphabetically by name - asc by default
+                $query->orderBy('name', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } else {
+                // Default: newest first
+                $query->orderBy('created_at', 'DESC');
+            }
+
             // Orders & Paginates Results
             $perPage = $request->input('per_page', 10);
             // If per_page is 'all' or a very large number, get all results without pagination
             if ($perPage === 'all' || (is_numeric($perPage) && $perPage > 1000)) {
-                $properties = $query->latest()->get();
+                $properties = $query->get();
                 return response()->json([
                     'success' => true,
                     'message' => 'Properties retrieved successfully',
                     'data' => $properties
                 ]);
             }
-            $properties = $query->latest()->paginate((int)$perPage);
+            $properties = $query->paginate((int)$perPage);
 
             return response()->json([
                 'success' => true,

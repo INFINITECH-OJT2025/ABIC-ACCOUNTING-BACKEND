@@ -44,12 +44,27 @@ class OwnerController extends Controller
                     });
             }
 
+            // Sorting
+            $sortBy = $request->input('sort_by', 'date'); // 'date' or 'name'
+            $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+            
+            if ($sortBy === 'date') {
+                // Sort by created_at (date created) - desc by default
+                $query->orderBy('created_at', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } elseif ($sortBy === 'name') {
+                // Sort alphabetically by name - asc by default
+                $query->orderBy('name', $sortOrder === 'asc' ? 'ASC' : 'DESC');
+            } else {
+                // Default: newest first
+                $query->orderBy('created_at', 'DESC');
+            }
+
             // Orders & Paginates Results
             $perPage = $request->input('per_page', 10);
             
             // If per_page is 'all' or a very large number, get all results without pagination
             if ($perPage === 'all' || (is_numeric($perPage) && $perPage > 1000)) {
-                $owners = $query->latest()->get();
+                $owners = $query->get();
                 return response()->json([
                     'success' => true,
                     'message' => 'Owners retrieved successfully',
@@ -57,7 +72,7 @@ class OwnerController extends Controller
                 ]);
             }
             
-            $owners = $query->latest()->paginate((int)$perPage);
+            $owners = $query->paginate((int)$perPage);
 
             return response()->json([
                 'success' => true,
@@ -90,7 +105,7 @@ class OwnerController extends Controller
     {
         try {
             $validated = $request->validate([
-                'owner_type' => ['required', 'string', 'max:255'],
+                'owner_type' => ['required', 'string', 'max:255', 'in:COMPANY,CLIENT,EMPLOYEE,INDIVIDUAL,MAIN,PARTNER,PROPERTY,PROJECT'],
                 'name' => ['required', 'string', 'min:2', 'unique:owners,name'],
                 'email' => ['nullable', 'email', 'unique:owners,email'],
                 'phone_number' => ['nullable', 'string', 'min:2'],
@@ -198,7 +213,7 @@ class OwnerController extends Controller
 
             //Validate data
             $validated = $request->validate([
-                'owner_type' => ['required', 'string', 'min:2',],
+                'owner_type' => ['required', 'string', 'min:2', 'in:COMPANY,CLIENT,EMPLOYEE,INDIVIDUAL,MAIN,PARTNER,PROPERTY,PROJECT'],
                 'name' => ['required', 'string', 'min:2', 'unique:owners,name,' . $owner->id], 
                 'email' => ['nullable', 'email', 'unique:owners,email,' . $owner->id],
                 'phone_number' => ['nullable', 'string', 'min:2'],
