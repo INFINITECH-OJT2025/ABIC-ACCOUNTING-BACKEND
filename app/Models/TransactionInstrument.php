@@ -5,16 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
-class TransactionAttachment extends Model
+class TransactionInstrument extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'transaction_id',
-        'attachment_type',
-        'file_name',
-        'file_path',
-        'file_type',
+        'instrument_type',
+        'instrument_no',
     ];
 
     protected $casts = [

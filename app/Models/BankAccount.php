@@ -43,5 +43,10 @@ class BankAccount extends Model
     {
         return $this->belongsTo(Owner::class);
     }
+    
+    public function assetAccount()
+    {
+        return $this->hasOne(ChartOfAccount::class, 'related_bank_account_id');
+    }
 
 }

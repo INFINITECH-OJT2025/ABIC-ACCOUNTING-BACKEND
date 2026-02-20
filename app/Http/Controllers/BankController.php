@@ -7,16 +7,16 @@ use App\Models\Bank;
 
 class BankController extends Controller
 {   
-    public function index()
+    public function index(Request $request)
         {
             try {
 
                 $query = Bank::query();
 
-                $query->where('status0', 'active');
+                $query->where('status', 'active');
 
                 if ($request->filled('search')) {
-                    $search = $request->search();
+                    $search = $request->search;
 
                     $query->where(function ($q) use ($search) {
                         $q->where('bank_name', 'like', "%{$search}%");
@@ -39,23 +39,25 @@ class BankController extends Controller
             }
         }
 
-    public function selectBank() {
-        $banks = Bank::where('status', 'active')->get();
+    public function selectBank()
+    {
+        $banks = Bank::where('status', 'active')
+            ->orderBy('bank_name')
+            ->get(['id', 'bank_name', 'short_name']);
 
-        if (Bank::where('status', 'active')->count() === 0) {
+        if ($banks->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => 'No active banks available. Please create a bank first.',
+                'message' => 'No active banks available.',
                 'data' => null
-            ], 400);
+            ], 404);
         }
 
-        
         return response()->json([
             'success' => true,
             'message' => 'Active banks retrieved successfully',
             'data' => $banks
-        ]);
+        ], 200);
     }
 
     /**

@@ -12,42 +12,53 @@ class Transaction extends Model
     protected $fillable = [
         'voucher_no',
         'voucher_date',
-        'trans_type',
-        'transaction_reference',
-        'document_reference',
-        'bank_account_id',
-        'counterparty_bank_account_id',
+        'trans_method',
+        'from_owner_id',
+        'to_owner_id',
+        'amount',
+        'fund_reference',
         'particulars',
-        'deposit_amount',
-        'withdrawal_amount',
-        'created_by'
+        'transfer_group_id',
+        'created_by',
+        'person_in_charge',
+        'status',
+    ];
+
+    protected $casts = [
+        'voucher_date' => 'date',
+        'amount' => 'decimal:2',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     /*
     |--------------------------------------------------------------------------
-    | Relationships
+    | RELATIONSHIPS
     |--------------------------------------------------------------------------
     */
 
-
-
-    public function bankAccount()
+    public function fromOwner()
     {
-        return $this->belongsTo(BankAccount::class);
+        return $this->belongsTo(Owner::class, 'from_owner_id');
     }
 
-    public function counterpartyBankAccount()
+    public function toOwner()
     {
-        return $this->belongsTo(BankAccount::class, 'counterparty_bank_account_id');
-    }
-
-    public function attachments()
-    {
-        return $this->hasMany(TransactionAttachment::class);
+        return $this->belongsTo(Owner::class, 'to_owner_id');
     }
 
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function instruments()
+    {
+        return $this->hasMany(TransactionInstrument::class);
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(TransactionAttachment::class);
     }
 }

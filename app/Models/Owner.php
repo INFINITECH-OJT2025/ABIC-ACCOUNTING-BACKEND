@@ -16,20 +16,41 @@ class Owner extends Model
         'phone_number',
         'address',
         'status',
-        // 'account_name',
-        // 'account_number',
-        // 'bank_details',
-        // 'status',
+        'created_by',
     ];
 
-    public function transactions()
+    protected $casts = [
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | RELATIONSHIPS
+    |--------------------------------------------------------------------------
+    */
+
+    // Transactions where owner is sender (withdrawal)
+    public function outgoingTransactions()
     {
-        return $this->hasMany(BankTransaction::class);
+        return $this->hasMany(Transaction::class, 'from_owner_id');
     }
 
-    public function transactionAttachments()
+    // Transactions where owner is receiver (deposit)
+    public function incomingTransactions()
     {
-        return $this->hasMany(BankTransactionAttachment::class);
+        return $this->hasMany(Transaction::class, 'to_owner_id');
     }
 
+    // Creator (user)
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    // Bank Accounts
+    public function bankAccounts()
+    {
+        return $this->hasMany(BankAccount::class);
+    }
 }

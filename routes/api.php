@@ -11,6 +11,11 @@ use App\Http\Controllers\BankContactController;
 use App\Http\Controllers\BankContactChannelController;
 use App\Http\Controllers\TransactionAttachmentController;
 use App\Http\Controllers\TransactionController;
+use App\Http\Controllers\ChartOfAccountController;
+use App\Http\Controllers\TrialBalanceController;
+// use App\Http\Controllers\OwnerLedgerController;
+use App\Http\Controllers\BankAccountLedgerController;
+
 
 
 
@@ -78,15 +83,50 @@ Route::middleware(['auth:sanctum'])->prefix('bank-accounts')->group(function () 
 
 
 
-Route::middleware(['auth:sanctum'])
-    ->prefix('transactions')
-    ->group(function () {
-
-        Route::get('/', [TransactionController::class, 'index']);
-        Route::post('/', [TransactionController::class, 'store']);
-        Route::get('/{id}', [TransactionController::class, 'show']);
-
+Route::middleware(['auth:sanctum'])->prefix('transactions')->group(function () {
+    // Create Transaction
+    Route::post('/', [TransactionController::class, 'store']);
+    // (Optional if you add later)
+    Route::get('/', [TransactionController::class, 'index']);
+    Route::get('/{id}', [TransactionController::class, 'show']);
+    Route::put('/{id}', [TransactionController::class, 'update']);
+    Route::patch('/{id}/inactive', [TransactionController::class, 'inactive']);
+    Route::patch('/{id}/restore', [TransactionController::class, 'restore']);
 });
+
+Route::middleware(['auth:sanctum'])->prefix('transactions')->group(function () {
+
+    // List instruments of a transaction
+    Route::get('{transactionId}/instruments', 
+        [TransactionInstrumentController::class, 'index']);
+
+    // Add instrument to transaction
+    Route::post('{transactionId}/instruments', 
+        [TransactionInstrumentController::class, 'store']);
+});
+
+// Delete instrument
+Route::middleware(['auth:sanctum'])->delete(
+    'transaction-instruments/{id}',
+    [TransactionInstrumentController::class, 'destroy']
+);
+
+Route::middleware(['auth:sanctum'])->prefix('transactions')->group(function () {
+
+    // List attachments of a transaction
+    Route::get('{transactionId}/attachments', 
+        [TransactionAttachmentController::class, 'index']);
+
+    // Upload attachment
+    Route::post('{transactionId}/attachments', 
+        [TransactionAttachmentController::class, 'store']);
+});
+
+// Delete attachment
+Route::middleware(['auth:sanctum'])->delete(
+    'transaction-attachments/{id}',
+    [TransactionAttachmentController::class, 'destroy']
+);
 
 
 
@@ -101,4 +141,16 @@ Route::middleware(['auth:sanctum'])
 });
 
 
+
+Route::middleware(['auth:sanctum'])
+    ->prefix('chart-of-accounts')
+    ->group(function () {
+
+        Route::get('/', [ChartOfAccountController::class, 'index']);
+        Route::post('/', [ChartOfAccountController::class, 'store']);
+        Route::get('/{id}', [ChartOfAccountController::class, 'show']);
+        Route::put('/{id}', [ChartOfAccountController::class, 'update']);
+        Route::patch('/deactivate/{id}', [ChartOfAccountController::class, 'deactivate']);
+        Route::patch('/activate/{id}', [ChartOfAccountController::class, 'activate']);
+});
 

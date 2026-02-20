@@ -4,16 +4,15 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Transaction;
-use App\Models\TransactionAttachment;
-use Illuminate\Support\Facades\Storage;
+use App\Models\TransactionInstrument;
 use Illuminate\Validation\ValidationException;
 use Exception;
 
-class TransactionAttachmentController extends Controller
+class TransactionInstrumentController extends Controller
 {
     /*
     |--------------------------------------------------------------------------
-    | LIST ATTACHMENTS
+    | LIST INSTRUMENTS PER TRANSACTION
     |--------------------------------------------------------------------------
     */
     public function index($transactionId)
@@ -30,14 +29,14 @@ class TransactionAttachmentController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Attachments retrieved successfully',
-            'data' => $transaction->attachments
+            'message' => 'Instruments retrieved successfully',
+            'data' => $transaction->instruments
         ]);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | STORE ATTACHMENT
+    | CREATE INSTRUMENT
     |--------------------------------------------------------------------------
     */
     public function store(Request $request, $transactionId)
@@ -53,28 +52,16 @@ class TransactionAttachmentController extends Controller
             }
 
             $validated = $request->validate([
-                'attachment_type' => ['required','in:VOUCHER,SUPPORTING'],
-                'file' => ['required','file','mimes:jpg,jpeg,png,pdf']
+                'instrument_type' => ['required','in:CASH,CHEQUE,DEPOSIT_SLIP,INTERNAL'],
+                'instrument_no'   => ['nullable','string']
             ]);
 
-            $file = $request->file('file');
-
-            $path = $file->store(
-                'transactions/'.$transaction->id,
-                'public'
-            );
-
-            $attachment = $transaction->attachments()->create([
-                'attachment_type' => $validated['attachment_type'],
-                'file_name' => $file->getClientOriginalName(),
-                'file_path' => $path,
-                'file_type' => $file->getClientMimeType(),
-            ]);
+            $instrument = $transaction->instruments()->create($validated);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Attachment uploaded successfully',
-                'data' => $attachment
+                'message' => 'Instrument added successfully',
+                'data' => $instrument
             ], 201);
 
         } catch (ValidationException $e) {
@@ -89,41 +76,39 @@ class TransactionAttachmentController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Attachment upload failed'
+                'message' => 'Failed to create instrument'
             ], 500);
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | DELETE ATTACHMENT
+    | DELETE INSTRUMENT
     |--------------------------------------------------------------------------
     */
     public function destroy($id)
     {
-        $attachment = TransactionAttachment::find($id);
+        $instrument = TransactionInstrument::find($id);
 
-        if (!$attachment) {
+        if (!$instrument) {
             return response()->json([
                 'success' => false,
-                'message' => 'Attachment not found'
+                'message' => 'Instrument not found'
             ], 404);
         }
 
-        if ($attachment->transaction->status !== 'ACTIVE') {
+        if ($instrument->transaction->status !== 'ACTIVE') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot delete attachment of inactive transaction'
+                'message' => 'Cannot delete instrument of inactive transaction'
             ], 403);
         }
 
-        Storage::disk('public')->delete($attachment->file_path);
-
-        $attachment->delete();
+        $instrument->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Attachment deleted successfully'
+            'message' => 'Instrument deleted successfully'
         ]);
     }
 }

@@ -4,38 +4,35 @@ namespace App\Http\Controllers;
 
 use App\Models\Owner;
 use Illuminate\Http\Request;
-use \Exception;
+use Illuminate\Validation\Rule;
+use Exception;
 
 class OwnerController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | LIST ACTIVE OWNERS
+    |--------------------------------------------------------------------------
+    */
     public function index(Request $request)
     {
         try {
 
-            // Start a Query Builder/ Prepares only
-            $query = Owner::query();
+            $query = Owner::query()
+                ->where('status', 'ACTIVE');
 
-            // ALWAYS FILTER ACTIVE OWNERS
-            $query->where('status', 'active');
-
-            // APPLIES SEARCH FILTERING
-            if ($request->filled('search')) 
-            {
+            if ($request->filled('search')) {
                 $search = $request->search;
 
                 $query->where(function ($q) use ($search) {
-                        $q->where('owner_type', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('phone_number', 'like', "%{$search}%")
-                        ->orWhere('address', 'like', "%{$search}%");
-                    });
+                    $q->where('owner_type', 'like', "%{$search}%")
+                      ->orWhere('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('phone_number', 'like', "%{$search}%")
+                      ->orWhere('address', 'like', "%{$search}%");
+                });
             }
 
-            // Orders & Paginates Results
             $owners = $query->latest()->paginate(10);
 
             return response()->json([
@@ -44,8 +41,7 @@ class OwnerController extends Controller
                 'data' => $owners
             ]);
 
-        }
-        catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Something went wrong',
@@ -54,106 +50,148 @@ class OwnerController extends Controller
         }
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+
+    /*
+|--------------------------------------------------------------------------
+| SELECT OWNER (for Bank Account Creation)
+|--------------------------------------------------------------------------
+*/
+    public function selectOwner(Request $request)
     {
-        //
+        try {
+
+            $query = Owner::query()
+                ->where('status', 'ACTIVE')
+                ->whereIn('owner_type', [
+                    'MAIN',
+                    'COMPANY',
+                    'EMPLOYEE',
+                    'CLIENT',
+                    'UNIT',
+                    'PROJECT'
+                ]);
+
+            if ($request->filled('search')) {
+                $search = $request->search;
+
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('owner_type', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+                });
+            }
+
+            $owners = $query->orderBy('name')->get([
+                'id',
+                'owner_type',
+                'name'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Owners retrieved successfully',
+                'data' => $owners
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong',
+                'data' => null
+            ], 500);
+        }
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE OWNER
+    |--------------------------------------------------------------------------
+    */
     public function createOwner(Request $request)
     {
         try {
+
             $validated = $request->validate([
-                'owner_type' => ['required', 'string', 'max:255'],
-                'name' => ['required', 'string', 'min:2', 'unique:owners,name'],
-                'email' => ['required', 'email', 'unique:owners,email'],
-                'phone_number' => ['required', 'string', 'min:2' ],
-                'address' => ['required', 'string', 'min:2']
+                'owner_type' => [
+                    'required',
+                    Rule::in(['MAIN','COMPANY','EMPLOYEE','CLIENT','UNIT','PROJECT'])
+                ],
+                'name' => [
+                    'required','string','min:2',
+                    'unique:owners,name'
+                ],
+                'email' => [
+                    'required','email',
+                    'unique:owners,email'
+                ],
+                'phone_number' => ['required','string','min:2'],
+                'address' => ['required','string','min:2']
             ]);
 
-            $validated['status'] = 'active';
+            $validated['status'] = 'ACTIVE';
+            $validated['created_by'] = auth()->id();
 
             $owner = Owner::create($validated);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Owner created successfully',
-                'data'  => $owner
+                'data' => $owner
             ], 201);
-            } 
-        catch (\Exception $e) {
+
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-                'line' => $e->getLine(),
-                'file' => $e->getFile()
             ], 500);
         }
-
     }
 
-    /**
-     * Display the specified resource.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | SHOW OWNER
+    |--------------------------------------------------------------------------
+    */
     public function show($id)
     {
         try {
-        $owner = Owner::find($id);
 
-        if (!$owner) {
+            $owner = Owner::find($id);
+
+            if (!$owner) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Owner not found',
+                    'data' => null
+                ], 404);
+            }
+
             return response()->json([
-                'success' => false,
-                'message' => 'Owner not found',
-                'data' => null
-            ], 404);
-        }
+                'success' => true,
+                'message' => 'Owner retrieved successfully',
+                'data' => $owner
+            ]);
 
-        if ($owner->status === 'archived') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Owner is archived',
-                'data' => null
-            ], 403);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Owner retrieved successfully',
-            'data' => $owner
-        ]);
-        }
-        catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Something went wrong',
-                'data' => null,
+                'data' => null
             ], 500);
         }
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(Request $request)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE OWNER
+    |--------------------------------------------------------------------------
+    */
     public function update(Request $request, $id)
     {
         try {
-            //LANCE to! - Find the Owner id first
+
             $owner = Owner::find($id);
 
-            //If Owner doesnt exist  display Unauntenticated
             if (!$owner) {
                 return response()->json([
                     'success'=> false,
@@ -162,104 +200,123 @@ class OwnerController extends Controller
                 ], 404);
             }
 
-            if ($owner->status === 'archived') {
+            if ($owner->status === 'INACTIVE') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Cannot update archived owner',
+                    'message' => 'Cannot update inactive owner',
                     'data' => null
                 ], 403);
             }
 
-            //Validate data
             $validated = $request->validate([
-                'owner_type' => ['required', 'string', 'min:2',],
-                'name' => ['required', 'string', 'min:2', 'unique:owners,name,' . $owner->id], 
-                'email' => ['required', 'string', 'min:2', 'unique:owners,name,'],
-                'phone_number' => ['required', 'string', 'min:2'],
-                'address' => ['required', 'string', 'min:2']
+                'owner_type' => [
+                    'required',
+                    Rule::in(['MAIN','COMPANY','EMPLOYEE','CLIENT','UNIT','PROJECT'])
+                ],
+                'name' => [
+                    'required','string','min:2',
+                    'unique:owners,name,' . $owner->id
+                ],
+                'email' => [
+                    'required','email',
+                    'unique:owners,email,' . $owner->id
+                ],
+                'phone_number' => ['required','string','min:2'],
+                'address' => ['required','string','min:2']
             ]);
 
-            //Update data
             $owner->update($validated);
 
-            //Return success response
             return response()->json([
                 'success' => true,
-                'message' => 'Owner Details Successfully updated',
+                'message' => 'Owner successfully updated',
                 'data' => $owner
             ]);
-        }
-        catch (\Exception $e) {
+
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-                'line' => $e->getLine(),
-                'file' => $e->getFile()
-            ], 500);
-        }
-
-    }
-
-    public function inactive($id) 
-    {
-        try {
-            //Find the owner user id
-            $owner = Owner::find($id);
-
-            if (!$owner) {
-                return response()->json([
-                    'error' => 'Owner not found'
-                ], 404);
-            }
-
-            //UPDATE!
-            if ($owner->status === 'inactive') {
-                return response()->json(['error' => 'Owner already inactive'], 400);
-            }
-
-            $owner->update(['status' => 'inactive']);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Owner successfully archived',
-                'data' => $owner
-            ]);
-        }
-        catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'line' => $e->getLine(),
-                'file' => $e->getFile()
             ], 500);
         }
     }
 
-    public function restore($id) 
+    /*
+    |--------------------------------------------------------------------------
+    | INACTIVATE OWNER
+    |--------------------------------------------------------------------------
+    */
+    public function inactive($id)
     {
         try {
+
             $owner = Owner::find($id);
 
             if (!$owner) {
                 return response()->json([
-                    'error' => 'Owner not found'
+                    'success' => false,
+                    'message' => 'Owner not found'
                 ], 404);
             }
 
-            if ($owner->status === 'active') {
-                return response()->json(['error' => 'Owner already active'], 400);
+            if ($owner->status === 'INACTIVE') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Owner already inactive'
+                ], 400);
             }
 
-            $owner->status = 'active';
-            $owner->save();
+            $owner->update(['status' => 'INACTIVE']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Owner successfully inactivated',
+                'data' => $owner
+            ]);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong',
+                'data' => null
+            ], 500);
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESTORE OWNER
+    |--------------------------------------------------------------------------
+    */
+    public function restore($id)
+    {
+        try {
+
+            $owner = Owner::find($id);
+
+            if (!$owner) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Owner not found'
+                ], 404);
+            }
+
+            if ($owner->status === 'ACTIVE') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Owner already active'
+                ], 400);
+            }
+
+            $owner->update(['status' => 'ACTIVE']);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Owner successfully restored',
                 'data' => $owner
             ]);
-        }
-        catch (\Exception $e) {
+
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Something went wrong',
