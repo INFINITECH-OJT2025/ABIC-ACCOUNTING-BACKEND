@@ -68,24 +68,24 @@ class BankAccountController extends Controller
         ]);
 
         $bank = Bank::find($validated['bank_id']);
-        if ($bank->status !== 'active') {
+        if ($bank->status !== 'ACTIVE') {
             return response()->json([
                 'success' => false,
-                'message' => 'Selected bank is inactive',
+                'message' => 'Selected bank is INACTIVE',
                 'data' => null
             ], 400);
         }
 
         $owner = Owner::find($validated['owner_id']);
-        if ($owner->status !== 'active') {
+        if ($owner->status !== 'ACTIVE') {
             return response()->json([
                 'success' => false,
-                'message' => 'Selected owner is inactive',
+                'message' => 'Selected owner is INACTIVE',
                 'data' => null
             ], 400);
         }
 
-        $validated['status'] = 'active';
+        $validated['status'] = 'ACTIVE';
         $validated['created_by'] = auth()->id(); // authenticated user
 
         $account = BankAccount::create($validated);
@@ -109,10 +109,10 @@ class BankAccountController extends Controller
             ], 404);
         }
 
-        if ($account->status !== 'active') {
+        if ($account->status !== 'ACTIVE') {
             return response()->json([
                 'success' => false,
-                'message' => 'Cannot update inactive account',
+                'message' => 'Cannot update INACTIVE account',
                 'data' => null
             ], 400);
         }
@@ -138,7 +138,7 @@ class BankAccountController extends Controller
         ]);
     }
 
-    public function inactive($id)
+    public function INACTIVE($id)
     {
         $account = BankAccount::find($id);
 
@@ -150,19 +150,19 @@ class BankAccountController extends Controller
             ], 404);
         }
 
-        if ($account->status === 'inactive') {
+        if ($account->status === 'INACTIVE') {
             return response()->json([
                 'success' => false,
-                'message' => 'Already inactive',
+                'message' => 'Already INACTIVE',
                 'data' => null
             ], 400);
         }
 
-        $account->update(['status' => 'inactive']);
+        $account->update(['status' => 'INACTIVE']);
 
         return response()->json([
             'success' => true,
-            'message' => 'Bank account inactive successfully',
+            'message' => 'Bank account INACTIVE successfully',
             'data' => $account
         ]);
     }
@@ -179,15 +179,15 @@ class BankAccountController extends Controller
             ], 404);
         }
 
-        if ($account->status === 'active') {
+        if ($account->status === 'ACTIVE') {
             return response()->json([
                 'success' => false,
-                'message' => 'Already active',
+                'message' => 'Already ACTIVE',
                 'data' => null
             ], 400);
         }
 
-        $account->update(['status' => 'active']);
+        $account->update(['status' => 'ACTIVE']);
 
         return response()->json([
             'success' => true,

@@ -53,4 +53,9 @@ class Owner extends Model
     {
         return $this->hasMany(BankAccount::class);
     }
+
+    public function chartOfAccount()
+    {
+        return $this->belongsTo(\App\Models\ChartOfAccount::class);
+    }
 }

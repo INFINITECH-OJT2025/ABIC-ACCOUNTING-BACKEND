@@ -15,6 +15,7 @@ use App\Http\Controllers\ChartOfAccountController;
 use App\Http\Controllers\TrialBalanceController;
 // use App\Http\Controllers\OwnerLedgerController;
 use App\Http\Controllers\BankAccountLedgerController;
+use App\Http\Controllers\LedgerController;
 
 
 
@@ -154,3 +155,8 @@ Route::middleware(['auth:sanctum'])
         Route::patch('/activate/{id}', [ChartOfAccountController::class, 'activate']);
 });
 
+
+Route::get(
+    'ledger/owners/{ownerId}',
+    [LedgerController::class, 'ownerBankLedger']
+);
