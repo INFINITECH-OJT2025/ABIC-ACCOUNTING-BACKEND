@@ -68,13 +68,13 @@ class UnitController extends Controller
                 'owner_id' => ['nullable', 'integer', 'exists:owners,id'],
                 'property_id' => ['nullable', 'integer'],
                 'unit_name' => ['required', 'string', 'max:100'],
-                'status' => ['required', 'string', 'in:ACTIVE,INACTIVE,ARCHIVED'],
+                'status' => ['required', 'string', 'in:ACTIVE,INACTIVE'],
                 'notes' => ['nullable', 'string'],
             ], [
                 'unit_name.required' => 'Unit name is required',
                 'unit_name.max' => 'Unit name must not exceed 100 characters',
                 'status.required' => 'Status is required',
-                'status.in' => 'Status must be ACTIVE, INACTIVE, or ARCHIVED',
+                'status.in' => 'Status must be ACTIVE or INACTIVE',
                 'owner_id.exists' => 'Selected owner does not exist',
             ]);
 
@@ -163,13 +163,13 @@ class UnitController extends Controller
                 'owner_id' => ['nullable', 'integer', 'exists:owners,id'],
                 'property_id' => ['nullable', 'integer'],
                 'unit_name' => ['sometimes', 'required', 'string', 'max:100'],
-                'status' => ['sometimes', 'required', 'string', 'in:ACTIVE,INACTIVE,ARCHIVED'],
+                'status' => ['sometimes', 'required', 'string', 'in:ACTIVE,INACTIVE'],
                 'notes' => ['nullable', 'string'],
             ], [
                 'unit_name.required' => 'Unit name is required',
                 'unit_name.max' => 'Unit name must not exceed 100 characters',
                 'status.required' => 'Status is required',
-                'status.in' => 'Status must be ACTIVE, INACTIVE, or ARCHIVED',
+                'status.in' => 'Status must be ACTIVE or INACTIVE',
                 'owner_id.exists' => 'Selected owner does not exist',
             ]);
 

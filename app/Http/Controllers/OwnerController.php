@@ -217,7 +217,8 @@ class OwnerController extends Controller
                 'name' => ['required', 'string', 'min:2', 'unique:owners,name,' . $owner->id], 
                 'email' => ['nullable', 'email', 'unique:owners,email,' . $owner->id],
                 'phone_number' => ['nullable', 'string', 'min:2'],
-                'address' => ['nullable', 'string', 'min:2']
+                'address' => ['nullable', 'string', 'min:2'],
+                'status' => ['sometimes', 'required', 'string', 'in:active,inactive']
             ]);
 
             // Map phone_number to phone if needed
