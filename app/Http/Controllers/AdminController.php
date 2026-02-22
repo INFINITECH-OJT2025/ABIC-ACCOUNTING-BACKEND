@@ -219,20 +219,26 @@ class AdminController extends Controller
 
             DB::beginTransaction();
 
+            // Generate a new readable password for the promoted admin
+            $plainPassword = $this->generateReadablePassword();
+            
             $user->update([
                 'role' => 'admin',
                 'role_changed_at' => now(),
                 'name' => trim(($employee->first_name ?? '') . ' ' . ($employee->middle_name ?? '') . ' ' . ($employee->last_name ?? '')),
+                'password' => Hash::make($plainPassword),
+                'password_expires_at' => now()->addMinutes(30), // Must change password within 30 minutes
+                'is_password_expired' => false,
             ]);
 
             DB::commit();
 
-            // Send promotion notification email
+            // Send credentials email with the new password
             try {
-                Mail::to($user->email)->send(new AdminPromotionMail($user->fresh()));
-                Log::info('Admin promotion email sent', ['user_email' => $user->email]);
+                Mail::to($user->email)->send(new AdminCredentialsMail($user->fresh(), $plainPassword));
+                Log::info('Admin promotion credentials email sent', ['user_email' => $user->email]);
             } catch (\Exception $e) {
-                Log::error('Failed to send admin promotion email', [
+                Log::error('Failed to send admin promotion credentials email', [
                     'user_email' => $user->email,
                     'error' => $e->getMessage(),
                 ]);

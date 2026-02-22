@@ -10,6 +10,10 @@ use App\Http\Controllers\OwnerController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\PropertyController;
 use App\Http\Controllers\BankAccountController;
+use App\Http\Controllers\TransactionController;
+use App\Http\Controllers\TransactionInstrumentController;
+use App\Http\Controllers\LedgerController;
+use App\Http\Controllers\SavedReceiptController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -79,6 +83,16 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::get('/', [AccountantController::class, 'index']);
         Route::post('/', [AccountantController::class, 'store']);
         Route::post('/promote-from-employee', [AccountantController::class, 'promoteFromEmployee']);
+        
+        // Saved receipts routes - must come before /{id} route to avoid route conflicts
+        Route::prefix('saved-receipts')->group(function () {
+            Route::get('/', [SavedReceiptController::class, 'index']);
+            Route::post('/', [SavedReceiptController::class, 'store']);
+            Route::get('/{id}', [SavedReceiptController::class, 'show']);
+            Route::get('/{id}/file', [SavedReceiptController::class, 'getFile']);
+            Route::delete('/{id}', [SavedReceiptController::class, 'destroy']);
+        });
+        
         Route::get('/{id}', [AccountantController::class, 'show']);
         Route::put('/{id}', [AccountantController::class, 'update']);
         Route::delete('/{id}', [AccountantController::class, 'destroy']);
@@ -139,6 +153,25 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
             Route::put('/{id}', [BankAccountController::class, 'update']);
             Route::post('/{id}/inactive', [BankAccountController::class, 'inactive']);
             Route::post('/{id}/restore', [BankAccountController::class, 'restore']);
+        });
+
+        Route::prefix('transactions')->group(function () {
+            Route::post('/deposit', [TransactionController::class, 'storeDeposit']);
+            Route::post('/withdrawal', [TransactionController::class, 'storeWithdrawal']);
+            Route::prefix('{transactionId}/instruments')->group(function () {
+                Route::get('/', [TransactionInstrumentController::class, 'index']);
+                Route::post('/', [TransactionInstrumentController::class, 'store']);
+                Route::delete('/{id}', [TransactionInstrumentController::class, 'destroy']);
+            });
+            Route::prefix('{transactionId}/attachments')->group(function () {
+                Route::get('/{attachmentId}', [TransactionController::class, 'getAttachment']);
+            });
+        });
+
+        Route::prefix('ledger')->group(function () {
+            Route::get('/mains', [LedgerController::class, 'mains']);
+            Route::get('/clients', [LedgerController::class, 'clients']);
+            Route::get('/system', [LedgerController::class, 'system']);
         });
     });
 });

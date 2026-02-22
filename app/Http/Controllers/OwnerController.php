@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Owner;
+use App\Models\Transaction;
+use App\Models\OwnerLedgerEntry;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use \Exception;
 
 class OwnerController extends Controller
@@ -18,11 +21,13 @@ class OwnerController extends Controller
             // Start a Query Builder/ Prepares only
             $query = Owner::query();
 
-            // Filter by status if provided, otherwise default to active
+            // Filter by status if provided, otherwise default to ACTIVE
             if ($request->filled('status')) {
-                $query->where('status', $request->status);
+                // Normalize status to uppercase for consistency
+                $status = strtoupper($request->status);
+                $query->where('status', $status);
             } else {
-                $query->where('status', 'active');
+                $query->where('status', 'ACTIVE');
             }
 
             // Filter by owner type if provided
@@ -105,21 +110,49 @@ class OwnerController extends Controller
     {
         try {
             $validated = $request->validate([
-                'owner_type' => ['required', 'string', 'max:255', 'in:COMPANY,CLIENT,EMPLOYEE,INDIVIDUAL,MAIN,PARTNER,PROPERTY,PROJECT'],
+                'owner_type' => ['required', 'string', 'max:30', 'in:COMPANY,CLIENT,EMPLOYEE,MAIN'],
                 'name' => ['required', 'string', 'min:2', 'unique:owners,name'],
+                'description' => ['nullable', 'string'],
                 'email' => ['nullable', 'email', 'unique:owners,email'],
-                'phone_number' => ['nullable', 'string', 'min:2'],
-                'address' => ['nullable', 'string', 'min:2']
+                'phone' => ['nullable', 'string', 'max:100'],
+                'phone_number' => ['nullable', 'string', 'max:100'],
+                'address' => ['nullable', 'string'],
+                'opening_balance' => ['nullable', 'numeric', 'min:0'],
+                'opening_date' => ['nullable', 'date', 'required_with:opening_balance'],
             ]);
 
-            $validated['status'] = 'active';
-            // Map phone_number to phone if needed
-            if (isset($validated['phone_number'])) {
-                $validated['phone'] = $validated['phone_number'];
-                unset($validated['phone_number']);
-            }
+            $openingBalance = $validated['opening_balance'] ?? null;
+            $openingDate = $validated['opening_date'] ?? null;
+            
+            // Remove opening fields from owner data
+            unset($validated['opening_balance'], $validated['opening_date']);
 
-            $owner = Owner::create($validated);
+            // Wrap everything in a database transaction
+            $owner = DB::transaction(function () use ($validated, $openingBalance, $openingDate) {
+                // Auto-generate owner_code based on owner_type
+                $ownerCode = $this->generateOwnerCode($validated['owner_type']);
+                $validated['owner_code'] = $ownerCode;
+                
+                $validated['status'] = 'ACTIVE'; // Schema uses uppercase
+                $validated['is_system'] = false; // User-created owners are never system-generated
+                $validated['created_by'] = auth()->id(); // Set the authenticated user as creator
+                
+                // Normalize phone: accept either phone or phone_number
+                if (isset($validated['phone_number'])) {
+                    $validated['phone'] = $validated['phone_number'];
+                }
+                unset($validated['phone_number']);
+
+                // Step 1: Create the owner
+                $owner = Owner::create($validated);
+
+                // Step 2: Create opening transaction if opening balance > 0
+                if ($openingBalance && $openingBalance > 0) {
+                    $this->createOpeningTransaction($owner->id, $openingBalance, $openingDate);
+                }
+
+                return $owner;
+            });
 
             return response()->json([
                 'success' => true,
@@ -213,18 +246,25 @@ class OwnerController extends Controller
 
             //Validate data
             $validated = $request->validate([
-                'owner_type' => ['required', 'string', 'min:2', 'in:COMPANY,CLIENT,EMPLOYEE,INDIVIDUAL,MAIN,PARTNER,PROPERTY,PROJECT'],
-                'name' => ['required', 'string', 'min:2', 'unique:owners,name,' . $owner->id], 
+                'owner_type' => ['required', 'string', 'max:30', 'in:COMPANY,CLIENT,EMPLOYEE,MAIN'],
+                'name' => ['required', 'string', 'min:2', 'unique:owners,name,' . $owner->id],
+                'description' => ['nullable', 'string'],
                 'email' => ['nullable', 'email', 'unique:owners,email,' . $owner->id],
-                'phone_number' => ['nullable', 'string', 'min:2'],
-                'address' => ['nullable', 'string', 'min:2'],
-                'status' => ['sometimes', 'required', 'string', 'in:active,inactive']
+                'phone' => ['nullable', 'string', 'max:100'],
+                'phone_number' => ['nullable', 'string', 'max:100'],
+                'address' => ['nullable', 'string'],
+                'status' => ['sometimes', 'required', 'string', 'in:ACTIVE,INACTIVE,SUSPENDED,active,inactive,suspended']
             ]);
 
-            // Map phone_number to phone if needed
+            // Normalize phone: accept either phone or phone_number
             if (isset($validated['phone_number'])) {
                 $validated['phone'] = $validated['phone_number'];
-                unset($validated['phone_number']);
+            }
+            unset($validated['phone_number']);
+
+            // Normalize status to uppercase
+            if (isset($validated['status'])) {
+                $validated['status'] = strtoupper($validated['status']);
             }
 
             //Update data
@@ -261,11 +301,11 @@ class OwnerController extends Controller
             }
 
             //UPDATE!
-            if ($owner->status === 'inactive') {
+            if ($owner->status === 'INACTIVE' || $owner->status === 'inactive') {
                 return response()->json(['error' => 'Owner already inactive'], 400);
             }
 
-            $owner->update(['status' => 'inactive']);
+            $owner->update(['status' => 'INACTIVE']);
 
             return response()->json([
                 'success' => true,
@@ -294,11 +334,11 @@ class OwnerController extends Controller
                 ], 404);
             }
 
-            if ($owner->status === 'active') {
+            if ($owner->status === 'ACTIVE' || $owner->status === 'active') {
                 return response()->json(['error' => 'Owner already active'], 400);
             }
 
-            $owner->status = 'active';
+            $owner->status = 'ACTIVE';
             $owner->save();
 
             return response()->json([
@@ -314,5 +354,275 @@ class OwnerController extends Controller
                 'data' => null
             ], 500);
         }
+    }
+
+    /**
+     * Create opening transaction for a new owner
+     */
+    private function createOpeningTransaction(int $newOwnerId, float $openingBalance, ?string $openingDate = null): void
+    {
+        // Get SYSTEM owner
+        $systemOwner = Owner::where('owner_code', 'SYS-000')
+            ->orWhere(function($q) {
+                $q->where('owner_type', 'SYSTEM')
+                  ->where('is_system', true);
+            })
+            ->first();
+
+        if (!$systemOwner) {
+            throw new \Exception('SYSTEM owner not found. Please seed the SYSTEM owner first.');
+        }
+
+        // Generate voucher number for opening transaction: OPN-YY-000000 (2-digit year)
+        $year = date('y'); // 2-digit year (e.g., 26 for 2026)
+        
+        // Find the latest opening transaction voucher for this year
+        // Support both old format (OPN-2026-...) and new format (OPN-26-...)
+        $year4Digit = date('Y');
+        $latestOpeningTransaction = Transaction::where(function($q) use ($year, $year4Digit) {
+                $q->where('voucher_no', 'like', "OPN-{$year}-%")
+                  ->orWhere('voucher_no', 'like', "OPN-{$year4Digit}-%");
+            })
+            ->orderByRaw('CAST(SUBSTRING(voucher_no, LOCATE("-", voucher_no, 5) + 1) AS UNSIGNED) DESC')
+            ->first();
+        
+        $nextNumber = 1;
+        if ($latestOpeningTransaction && $latestOpeningTransaction->voucher_no) {
+            // Extract the number part after "OPN-YY-" or "OPN-YYYY-"
+            $parts = explode('-', $latestOpeningTransaction->voucher_no);
+            if (count($parts) === 3 && is_numeric($parts[2])) {
+                $nextNumber = (int)$parts[2] + 1;
+            }
+        }
+        
+        $voucherNo = sprintf('OPN-%s-%06d', $year, $nextNumber);
+        
+        // Use opening date or today
+        $voucherDate = $openingDate ? date('Y-m-d', strtotime($openingDate)) : date('Y-m-d');
+
+        // Create opening transaction
+        $transaction = Transaction::create([
+            'voucher_no' => $voucherNo,
+            'voucher_date' => $voucherDate,
+            'trans_method' => 'TRANSFER',
+            'trans_type' => 'INTERNAL',
+            'transaction_category' => 'OPENING', // Mark as opening transaction
+            'from_owner_id' => $systemOwner->id,
+            'to_owner_id' => $newOwnerId,
+            'amount' => $openingBalance,
+            'particulars' => 'Opening Balance',
+            'created_by' => auth()->id(),
+        ]);
+
+        // Post the transaction immediately (create ledger entries)
+        $this->postTransaction($transaction);
+    }
+
+    /**
+     * Post a transaction - create ledger entries and compute running balances
+     */
+    private function postTransaction(Transaction $transaction): void
+    {
+        $fromOwner = Owner::find($transaction->from_owner_id);
+        $toOwner = Owner::find($transaction->to_owner_id);
+
+        if (!$fromOwner || !$toOwner) {
+            throw new \Exception('Invalid transaction: owner not found');
+        }
+
+        $amount = (float) $transaction->amount;
+        $voucherDate = $transaction->voucher_date ? $transaction->voucher_date->format('Y-m-d') : null;
+
+        // Get instrument numbers
+        $instrumentNos = $transaction->instruments()
+            ->pluck('instrument_no')
+            ->filter()
+            ->implode(', ') ?: null;
+
+        // Build particulars
+        $particulars = $transaction->particulars ?? '';
+        if ($transaction->unit_id) {
+            $unit = $transaction->unit()->first();
+            if ($unit) {
+                $particulars = ($unit->unit_name ?? '') . ' - ' . $particulars;
+            }
+        }
+
+        // Get current balances for both owners
+        // IMPORTANT: Order by created_at (not voucher_date) to get the most recent entry chronologically
+        // This ensures running balance is calculated correctly even if transactions are created out of voucher_date order
+        $fromLastEntry = OwnerLedgerEntry::where('owner_id', $transaction->from_owner_id)
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
+        
+        $toLastEntry = OwnerLedgerEntry::where('owner_id', $transaction->to_owner_id)
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        // Determine transaction category
+        $transactionCategory = $transaction->transaction_category ?? 'OPENING';
+        $isOpening = $transactionCategory === 'OPENING';
+        $isDeposit = $transactionCategory === 'DEPOSIT';
+        $isWithdrawal = $transactionCategory === 'WITHDRAWAL';
+
+        // Trust Account Model Logic
+        // Opening Balance: Should show as DEPOSIT for the receiving owner (all types)
+        // - MAIN: deposit = debit (increase)
+        // - CLIENT: deposit = credit (increase)
+        
+        $fromType = $fromOwner->owner_type ?? null;
+        $toType = $toOwner->owner_type ?? null;
+        
+        $fromPrevBalance = $fromLastEntry ? (float) $fromLastEntry->running_balance : 0;
+        $toPrevBalance = $toLastEntry ? (float) $toLastEntry->running_balance : 0;
+
+        // For opening transactions: SYSTEM shows DEPOSIT (money coming in), new owner shows deposit
+        // Opening balance represents initial capital/funds entering the system
+        if ($isOpening) {
+            // SYSTEM (from): Should show as DEPOSIT (increase) - opening balance is money coming INTO the system
+            if ($fromType === 'SYSTEM') {
+                // SYSTEM: deposit = debit (increase) - opening balance increases SYSTEM balance
+                $fromDebit = $amount;
+                $fromCredit = 0;
+                $fromNewBalance = $fromPrevBalance + $amount; // Increase
+            } else if ($fromType === 'MAIN') {
+                // MAIN: deposit = debit (increase)
+                $fromDebit = $amount;
+                $fromCredit = 0;
+                $fromNewBalance = $fromPrevBalance + $amount; // Increase
+            } else {
+                // CLIENT or other: deposit = credit (increase)
+                $fromDebit = 0;
+                $fromCredit = $amount;
+                $fromNewBalance = $fromPrevBalance + $amount; // Increase
+            }
+
+            // New Owner (to): deposit for ALL types
+            if ($toType === 'MAIN') {
+                // MAIN: deposit = debit (increase)
+                $toDebit = $amount;
+                $toCredit = 0;
+                $toNewBalance = $toPrevBalance + $amount; // Increase
+            } else {
+                // CLIENT: deposit = credit (increase)
+                $toDebit = 0;
+                $toCredit = $amount;
+                $toNewBalance = $toPrevBalance + $amount; // Increase
+            }
+        } else {
+            // For other transaction types, use the trust account model from TransactionController
+            // This matches the logic in createLedgerEntries
+            if ($fromType === 'MAIN') {
+                if ($isDeposit) {
+                    $fromDebit = $amount;
+                    $fromCredit = 0;
+                    $fromNewBalance = $fromPrevBalance + $amount;
+                } else {
+                    $fromDebit = 0;
+                    $fromCredit = $amount;
+                    $fromNewBalance = $fromPrevBalance - $amount;
+                }
+            } else {
+                if ($isDeposit) {
+                    $fromDebit = 0;
+                    $fromCredit = $amount;
+                    $fromNewBalance = $fromPrevBalance + $amount;
+                } else {
+                    $fromDebit = $amount;
+                    $fromCredit = 0;
+                    $fromNewBalance = $fromPrevBalance - $amount;
+                }
+            }
+
+            if ($toType === 'MAIN') {
+                if ($isDeposit) {
+                    $toDebit = $amount;
+                    $toCredit = 0;
+                    $toNewBalance = $toPrevBalance + $amount;
+                } else {
+                    $toDebit = 0;
+                    $toCredit = $amount;
+                    $toNewBalance = $toPrevBalance - $amount;
+                }
+            } else {
+                if ($isDeposit) {
+                    $toDebit = 0;
+                    $toCredit = $amount;
+                    $toNewBalance = $toPrevBalance + $amount;
+                } else {
+                    $toDebit = $amount;
+                    $toCredit = 0;
+                    $toNewBalance = $toPrevBalance - $amount;
+                }
+            }
+        }
+
+        // Create ledger entry for FROM owner
+        OwnerLedgerEntry::create([
+            'owner_id' => $transaction->from_owner_id,
+            'transaction_id' => $transaction->id,
+            'voucher_no' => $transaction->voucher_no ?? '—',
+            'voucher_date' => $voucherDate,
+            'instrument_no' => $instrumentNos,
+            'debit' => $fromDebit,
+            'credit' => $fromCredit,
+            'running_balance' => $fromNewBalance,
+            'unit_id' => $transaction->unit_id,
+            'particulars' => $particulars,
+            'transfer_group_id' => $transaction->transfer_group_id,
+            'created_at' => now(),
+        ]);
+
+        // Create ledger entry for TO owner
+        OwnerLedgerEntry::create([
+            'owner_id' => $transaction->to_owner_id,
+            'transaction_id' => $transaction->id,
+            'voucher_no' => $transaction->voucher_no ?? '—',
+            'voucher_date' => $voucherDate,
+            'instrument_no' => $instrumentNos,
+            'debit' => $toDebit,
+            'credit' => $toCredit,
+            'running_balance' => $toNewBalance,
+            'unit_id' => $transaction->unit_id,
+            'particulars' => $particulars,
+            'transfer_group_id' => $transaction->transfer_group_id,
+            'created_at' => now(),
+        ]);
+
+        // Transaction is automatically posted when ledger entries are created
+        // Note: If is_posted and posted_at fields exist in future migrations, update here
+    }
+
+    /**
+     * Generate owner code based on owner type
+     * Format: CL-001, EMP-002, MAIN-001, CO-001
+     */
+    private function generateOwnerCode(string $ownerType): string
+    {
+        // Map owner types to prefixes
+        $prefixes = [
+            'CLIENT' => 'CL',
+            'EMPLOYEE' => 'EMP',
+            'MAIN' => 'MAIN',
+            'COMPANY' => 'CO',
+            'SYSTEM' => 'SYS',
+        ];
+
+        $prefix = $prefixes[$ownerType] ?? 'OWN';
+        
+        // Get the highest number for this prefix
+        $lastOwner = Owner::where('owner_code', 'like', $prefix . '-%')
+            ->orderByRaw('CAST(SUBSTRING(owner_code, ' . (strlen($prefix) + 2) . ') AS UNSIGNED) DESC')
+            ->first();
+
+        if ($lastOwner && preg_match('/-(\d+)$/', $lastOwner->owner_code, $matches)) {
+            $nextNumber = intval($matches[1]) + 1;
+        } else {
+            $nextNumber = 1;
+        }
+
+        return sprintf('%s-%03d', $prefix, $nextNumber);
     }
 }

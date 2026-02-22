@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('email', 255)->nullable();
             $table->string('phone', 100)->nullable();
             $table->text('address')->nullable();
-            $table->string('status', 20)->nullable(false)->default('active');
+            $table->string('status', 20)->nullable(false)->default('ACTIVE');
             $table->timestamps();
 
             // Indexes

@@ -580,19 +580,26 @@ class AccountantController extends Controller
 
             DB::beginTransaction();
 
+            // Generate a new secure password for the promoted accountant
+            $plainPassword = $this->generateSecurePassword(12);
+            
             $user->update([
                 'role' => 'accountant',
                 'role_changed_at' => now(),
                 'name' => trim(($employee->first_name ?? '') . ' ' . ($employee->middle_name ?? '') . ' ' . ($employee->last_name ?? '')),
+                'password' => Hash::make($plainPassword),
+                'password_expires_at' => now()->addMinutes(30), // Must change password within 30 minutes
+                'is_password_expired' => false,
             ]);
 
             DB::commit();
 
+            // Send credentials email with the new password
             try {
-                Mail::to($user->email)->send(new AccountantPromotionMail($user->fresh()));
-                Log::info('Accountant promotion email sent', ['user_email' => $user->email]);
+                Mail::to($user->email)->send(new AccountantCredentialsMail($user->fresh(), $plainPassword));
+                Log::info('Accountant promotion credentials email sent', ['user_email' => $user->email]);
             } catch (\Exception $e) {
-                Log::error('Failed to send accountant promotion email', [
+                Log::error('Failed to send accountant promotion credentials email', [
                     'user_email' => $user->email,
                     'error' => $e->getMessage(),
                 ]);
