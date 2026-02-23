@@ -6,36 +6,59 @@ use Illuminate\Http\Request;
 use App\Models\SavedReceipt;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\FirebaseStorageService;
 
 class SavedReceiptController extends Controller
 {
+    /**
+     * Check if user has permission to access receipts.
+     */
+    protected function checkAuthorization(Request $request): void
+    {
+        $user = $request->user();
+        
+        if (!$user) {
+            abort(401, 'Unauthorized');
+        }
+
+        $userRole = strtolower($user->role ?? '');
+        $allowedRoles = ['accountant', 'super_admin', 'admin'];
+        
+        if (!in_array($userRole, $allowedRoles)) {
+            abort(403, 'Insufficient permissions.');
+        }
+    }
+
+    /**
+     * Check if a file path is a Firebase Storage URL.
+     */
+    protected function isFirebaseUrl(string $path): bool
+    {
+        return str_starts_with($path, 'http://') || str_starts_with($path, 'https://');
+    }
+
+    /**
+     * Get file URL for a receipt (Firebase URL or API proxy).
+     */
+    protected function getFileUrl(SavedReceipt $receipt): string
+    {
+        return $this->isFirebaseUrl($receipt->file_path) 
+            ? $receipt->file_path 
+            : "/api/accountant/saved-receipts/{$receipt->id}/file";
+    }
+
     /**
      * Save a receipt image.
      */
     public function store(Request $request)
     {
-        $user = $request->user();
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized'
-            ], 401);
-        }
-
-        // Check if user has accountant or super_admin role
-        $userRole = $user->role ?? '';
-        if (!in_array(strtolower($userRole), ['accountant', 'super_admin', 'admin'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Insufficient permissions.'
-            ], 403);
-        }
+        $this->checkAuthorization($request);
 
         try {
-            $request->validate([
+            $validated = $request->validate([
                 'transaction_id' => ['nullable', 'integer', 'exists:transactions,id'],
                 'transaction_type' => ['required', 'string', 'in:DEPOSIT,WITHDRAWAL'],
                 'receipt_image' => ['required', 'file', 'mimes:jpeg,jpg,png', 'max:10240'], // 10MB max
@@ -49,17 +72,18 @@ class SavedReceiptController extends Controller
 
             $file = $request->file('receipt_image');
             $basePath = 'receipts/' . date('Y/m');
+            $uniqueFileName = 'receipt_' . Str::uuid() . '.' . $file->getClientOriginalExtension();
+            $firebasePath = $basePath . '/' . $uniqueFileName;
             
-            // Generate unique file name
-            $extension = $file->getClientOriginalExtension();
-            $uniqueFileName = 'receipt_' . Str::uuid() . '.' . $extension;
-            $path = $file->storeAs($basePath, $uniqueFileName, 'local');
+            // Upload to Firebase Storage
+            $firebaseStorage = new FirebaseStorageService();
+            $firebaseUrl = $firebaseStorage->uploadFile($file, $firebasePath);
 
             $savedReceipt = SavedReceipt::create([
-                'transaction_id' => $request->transaction_id,
-                'transaction_type' => $request->transaction_type,
+                'transaction_id' => $validated['transaction_id'] ?? null,
+                'transaction_type' => $validated['transaction_type'],
                 'file_name' => $file->getClientOriginalName(),
-                'file_path' => $path,
+                'file_path' => $firebaseUrl,
                 'file_type' => $file->getMimeType(),
                 'file_size' => $file->getSize(),
                 'receipt_data' => $receiptData,
@@ -78,6 +102,11 @@ class SavedReceiptController extends Controller
                 'errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
+            Log::error('Failed to save receipt', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to save receipt: ' . $e->getMessage()
@@ -90,22 +119,7 @@ class SavedReceiptController extends Controller
      */
     public function index(Request $request)
     {
-        $user = $request->user();
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized'
-            ], 401);
-        }
-
-        // Check if user has accountant or super_admin role
-        $userRole = $user->role ?? '';
-        if (!in_array(strtolower($userRole), ['accountant', 'super_admin', 'admin'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Insufficient permissions.'
-            ], 403);
-        }
+        $this->checkAuthorization($request);
 
         try {
             $query = SavedReceipt::with('transaction')
@@ -118,9 +132,9 @@ class SavedReceiptController extends Controller
 
             $receipts = $query->get();
 
-            // Add file URL for each receipt (relative path for frontend proxy)
+            // Add file URL for each receipt
             $receipts->transform(function ($receipt) {
-                $receipt->file_url = "/api/accountant/saved-receipts/{$receipt->id}/file";
+                $receipt->file_url = $this->getFileUrl($receipt);
                 return $receipt;
             });
 
@@ -130,6 +144,10 @@ class SavedReceiptController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Failed to fetch receipts', [
+                'error' => $e->getMessage()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch receipts: ' . $e->getMessage()
@@ -144,7 +162,7 @@ class SavedReceiptController extends Controller
     {
         try {
             $receipt = SavedReceipt::with('transaction')->findOrFail($id);
-            $receipt->file_url = "/api/accountant/saved-receipts/{$receipt->id}/file";
+            $receipt->file_url = $this->getFileUrl($receipt);
 
             return response()->json([
                 'success' => true,
@@ -164,26 +182,17 @@ class SavedReceiptController extends Controller
      */
     public function getFile(Request $request, $id)
     {
-        $user = $request->user();
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized'
-            ], 401);
-        }
-
-        // Check if user has accountant or super_admin role
-        $userRole = $user->role ?? '';
-        if (!in_array(strtolower($userRole), ['accountant', 'super_admin', 'admin'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Insufficient permissions.'
-            ], 403);
-        }
+        $this->checkAuthorization($request);
 
         try {
             $receipt = SavedReceipt::findOrFail($id);
 
+            // If Firebase URL, redirect to it
+            if ($this->isFirebaseUrl($receipt->file_path)) {
+                return redirect($receipt->file_path);
+            }
+
+            // Legacy local storage fallback
             if (!Storage::disk('local')->exists($receipt->file_path)) {
                 return response()->json([
                     'success' => false,
@@ -199,6 +208,11 @@ class SavedReceiptController extends Controller
                 ->header('Content-Disposition', 'inline; filename="' . $receipt->file_name . '"');
 
         } catch (\Exception $e) {
+            Log::error('Failed to get receipt file', [
+                'receipt_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Receipt not found'
@@ -211,29 +225,29 @@ class SavedReceiptController extends Controller
      */
     public function destroy($id)
     {
-        $user = request()->user();
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthorized'
-            ], 401);
-        }
-
-        // Check if user has accountant or super_admin role
-        $userRole = $user->role ?? '';
-        if (!in_array(strtolower($userRole), ['accountant', 'super_admin', 'admin'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Insufficient permissions.'
-            ], 403);
-        }
+        $this->checkAuthorization(request());
 
         try {
             $receipt = SavedReceipt::findOrFail($id);
 
-            // Delete file from storage
-            if (Storage::exists($receipt->file_path)) {
-                Storage::delete($receipt->file_path);
+            // Delete file from storage (Firebase or local)
+            if ($this->isFirebaseUrl($receipt->file_path)) {
+                try {
+                    $firebaseStorage = new FirebaseStorageService();
+                    $firebaseStorage->deleteFile($receipt->file_path);
+                } catch (\Exception $e) {
+                    Log::warning('Failed to delete Firebase file', [
+                        'receipt_id' => $id,
+                        'file_path' => $receipt->file_path,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Continue with record deletion even if file deletion fails
+                }
+            } else {
+                // Local storage fallback
+                if (Storage::exists($receipt->file_path)) {
+                    Storage::delete($receipt->file_path);
+                }
             }
 
             // Delete record
@@ -245,6 +259,11 @@ class SavedReceiptController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Failed to delete receipt', [
+                'receipt_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete receipt: ' . $e->getMessage()

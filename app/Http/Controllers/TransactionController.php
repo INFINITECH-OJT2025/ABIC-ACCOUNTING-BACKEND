@@ -14,10 +14,14 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\FirebaseStorageService;
 use Exception;
 
 class TransactionController extends Controller
 {
+    // File upload constants
+    private const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    private const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
     /**
      * Create a deposit transaction.
      */
@@ -171,72 +175,8 @@ class TransactionController extends Controller
                     }
                 }
 
-                // 🔥 6️⃣ Handle file uploads with proper validation and unique naming
-                $basePath = 'transactions/' . $transaction->id;
-
-                // Voucher file
-                if ($request->hasFile('voucher')) {
-                    $file = $request->file('voucher');
-                    
-                    // Validate file size (10MB max)
-                    if ($file->getSize() > 10 * 1024 * 1024) {
-                        throw ValidationException::withMessages([
-                            'voucher' => ['Voucher file exceeds maximum size of 10MB']
-                        ]);
-                    }
-
-                    // Validate mime type (images and PDFs only)
-                    $allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
-                    if (!in_array($file->getMimeType(), $allowedMimes)) {
-                        throw ValidationException::withMessages([
-                            'voucher' => ['Invalid file type. Only JPEG, PNG, and PDF files are allowed.']
-                        ]);
-                    }
-
-                    // Generate unique file name (backend-controlled)
-                    $extension = $file->getClientOriginalExtension();
-                    $uniqueFileName = 'voucher_' . Str::uuid() . '.' . $extension;
-                    $path = $file->storeAs($basePath, $uniqueFileName, 'local');
-
-                    $transaction->attachments()->create([
-                        'file_name' => $file->getClientOriginalName(), // Keep original name for display
-                        'file_type' => $file->getMimeType(),
-                        'file_path' => $path, // Store backend-generated path
-                    ]);
-                }
-
-                // Uploaded files (file_0, file_1, ...)
-                $fileIndex = 0;
-                while ($request->hasFile("file_{$fileIndex}")) {
-                    $file = $request->file("file_{$fileIndex}");
-                    
-                    // Validate file size
-                    if ($file->getSize() > 10 * 1024 * 1024) {
-                        throw ValidationException::withMessages([
-                            "file_{$fileIndex}" => ['File exceeds maximum size of 10MB']
-                        ]);
-                    }
-
-                    // Validate mime type
-                    $allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
-                    if (!in_array($file->getMimeType(), $allowedMimes)) {
-                        throw ValidationException::withMessages([
-                            "file_{$fileIndex}" => ['Invalid file type. Only JPEG, PNG, and PDF files are allowed.']
-                        ]);
-                    }
-
-                    // Generate unique file name
-                    $extension = $file->getClientOriginalExtension();
-                    $uniqueFileName = 'attachment_' . Str::uuid() . '.' . $extension;
-                    $path = $file->storeAs($basePath, $uniqueFileName, 'local');
-
-                    $transaction->attachments()->create([
-                        'file_name' => $file->getClientOriginalName(),
-                        'file_type' => $file->getMimeType(),
-                        'file_path' => $path,
-                    ]);
-                    $fileIndex++;
-                }
+                // 🔥 6️⃣ Handle file uploads with proper validation and unique naming (Firebase Storage)
+                $this->handleTransactionFileUploads($request, $transaction);
 
                 // 🔥 4️⃣ Generate owner_ledger_entries (backend-calculated)
                 $transaction->load(['instruments', 'unit', 'fromOwner', 'toOwner']);
@@ -450,13 +390,39 @@ class TransactionController extends Controller
      */
     protected function validateTransactionData(array $data, string $transMethod): array
     {
+        // Clean and validate amount first
+        if (isset($data['amount'])) {
+            // Remove commas, spaces, and any non-numeric characters except decimal point
+            $amountStr = is_string($data['amount']) ? $data['amount'] : (string) $data['amount'];
+            $amountStr = preg_replace('/[^\d.]/', '', $amountStr);
+            
+            // Ensure only one decimal point
+            $parts = explode('.', $amountStr);
+            if (count($parts) > 2) {
+                $amountStr = $parts[0] . '.' . implode('', array_slice($parts, 1));
+            }
+            
+            // Convert to float and validate
+            $amount = (float) $amountStr;
+            
+            // Validate realistic amount range (0.01 to 999,999,999.99)
+            if ($amount < 0.01 || $amount > 999999999.99) {
+                throw ValidationException::withMessages([
+                    'amount' => ['Amount must be between ₱0.01 and ₱999,999,999.99']
+                ]);
+            }
+            
+            // Round to 2 decimal places
+            $data['amount'] = round($amount, 2);
+        }
+        
         // 🔥 2️⃣ Basic validation rules
         $rules = [
             'trans_type' => ['required', 'in:CASH,CHEQUE,DEPOSIT_SLIP,INTERNAL'],
             'from_owner_id' => ['required', 'integer', 'exists:owners,id'],
             'to_owner_id' => ['required', 'integer', 'exists:owners,id'],
             'unit_id' => ['nullable', 'integer', 'exists:units,id'],
-            'amount' => ['required', 'numeric', 'min:0.01'], // Must be positive
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999999.99'], // Realistic range
             'fund_reference' => ['nullable', 'string', 'max:255'],
             'particulars' => ['required', 'string', 'min:1'], // 🔥 2️⃣ Required, not empty
             'person_in_charge' => ['nullable', 'string', 'max:255'],
@@ -466,6 +432,9 @@ class TransactionController extends Controller
         ];
 
         $validated = validator($data, $rules)->validate();
+        
+        // Ensure amount is properly formatted as float with 2 decimal places
+        $validated['amount'] = round((float) $validated['amount'], 2);
 
         // 🔥 2️⃣ Business rule: from_owner_id ≠ to_owner_id
         if ($validated['from_owner_id'] === $validated['to_owner_id']) {
@@ -537,13 +506,8 @@ class TransactionController extends Controller
             }
         }
 
-        // 🔥 2️⃣ Validate amount is numeric and positive
+        // Amount is already cleaned and validated above, just ensure it's properly formatted
         $amount = (float) $validated['amount'];
-        if ($amount <= 0) {
-            throw ValidationException::withMessages([
-                'amount' => ['Amount must be greater than 0']
-            ]);
-        }
 
         // 🔥 10️⃣ Enforce voucher mode logic
         $hasVoucherNo = !empty($validated['voucher_no']);
@@ -576,6 +540,82 @@ class TransactionController extends Controller
     /**
      * Get a transaction attachment file.
      */
+    /**
+     * Handle file uploads for a transaction (voucher and attachments).
+     *
+     * @param Request $request
+     * @param Transaction $transaction
+     * @return void
+     */
+    protected function handleTransactionFileUploads(Request $request, Transaction $transaction): void
+    {
+        $firebaseStorage = new FirebaseStorageService();
+        $basePath = 'transactions/' . $transaction->id;
+
+        // Handle voucher file
+        if ($request->hasFile('voucher')) {
+            $file = $request->file('voucher');
+            $this->validateAndUploadFile($file, $firebaseStorage, $basePath, 'voucher', 'voucher', $transaction);
+        }
+
+        // Handle attachment files (file_0, file_1, ...)
+        $fileIndex = 0;
+        while ($request->hasFile("file_{$fileIndex}")) {
+            $file = $request->file("file_{$fileIndex}");
+            $this->validateAndUploadFile($file, $firebaseStorage, $basePath, "file_{$fileIndex}", 'attachment', $transaction);
+            $fileIndex++;
+        }
+    }
+
+    /**
+     * Validate and upload a file to Firebase Storage, then create attachment record.
+     *
+     * @param \Illuminate\Http\UploadedFile $file
+     * @param FirebaseStorageService $firebaseStorage
+     * @param string $basePath Base path in Firebase Storage
+     * @param string $fieldName Field name for validation errors
+     * @param string $filePrefix Prefix for generated filename (voucher or attachment)
+     * @param Transaction $transaction
+     * @return void
+     */
+    protected function validateAndUploadFile(
+        \Illuminate\Http\UploadedFile $file,
+        FirebaseStorageService $firebaseStorage,
+        string $basePath,
+        string $fieldName,
+        string $filePrefix,
+        Transaction $transaction
+    ): void {
+        // Validate file size
+        if ($file->getSize() > self::MAX_FILE_SIZE) {
+            throw ValidationException::withMessages([
+                $fieldName => ['File exceeds maximum size of 10MB']
+            ]);
+        }
+
+        // Validate mime type
+        if (!in_array($file->getMimeType(), self::ALLOWED_MIME_TYPES)) {
+            throw ValidationException::withMessages([
+                $fieldName => ['Invalid file type. Only JPEG, PNG, and PDF files are allowed.']
+            ]);
+        }
+
+        // Generate unique file name
+        $extension = $file->getClientOriginalExtension();
+        $uniqueFileName = $filePrefix . '_' . Str::uuid() . '.' . $extension;
+        $firebasePath = $basePath . '/' . $uniqueFileName;
+        
+        // Upload to Firebase Storage
+        $firebaseUrl = $firebaseStorage->uploadFile($file, $firebasePath);
+
+        // Create attachment record
+        $transaction->attachments()->create([
+            'file_name' => $file->getClientOriginalName(),
+            'file_type' => $file->getMimeType(),
+            'file_path' => $firebaseUrl,
+        ]);
+    }
+
     public function getAttachment(Request $request, $transactionId, $attachmentId)
     {
         $transaction = Transaction::find($transactionId);
@@ -598,6 +638,13 @@ class TransactionController extends Controller
             ], 404);
         }
 
+        // Check if file_path is a Firebase URL (starts with http/https)
+        if (str_starts_with($attachment->file_path, 'http://') || str_starts_with($attachment->file_path, 'https://')) {
+            // Firebase Storage URL - redirect to it
+            return redirect($attachment->file_path);
+        }
+
+        // Legacy local storage fallback
         if (!Storage::disk('local')->exists($attachment->file_path)) {
             return response()->json([
                 'success' => false,

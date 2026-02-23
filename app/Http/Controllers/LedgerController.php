@@ -174,18 +174,39 @@ class LedgerController extends Controller
                 if (!$voucherAttachment && $t->attachments->isNotEmpty()) {
                     $voucherAttachment = $t->attachments->first();
                 }
-                if ($voucherAttachment && Storage::disk('local')->exists($voucherAttachment->file_path)) {
-                    $voucherAttachmentUrl = "/api/accountant/transactions/{$t->id}/attachments/{$voucherAttachment->id}";
+                // Check if attachment exists (Firebase URL or local storage)
+                $attachmentExists = false;
+                if ($voucherAttachment) {
+                    if (str_starts_with($voucherAttachment->file_path, 'http://') || str_starts_with($voucherAttachment->file_path, 'https://')) {
+                        // Firebase URL - always exists
+                        $attachmentExists = true;
+                        $voucherAttachmentUrl = $voucherAttachment->file_path;
+                    } elseif (Storage::disk('local')->exists($voucherAttachment->file_path)) {
+                        // Local storage
+                        $attachmentExists = true;
+                        $voucherAttachmentUrl = "/api/accountant/transactions/{$t->id}/attachments/{$voucherAttachment->id}";
+                    }
                 }
 
-                $attachmentsList = $t->attachments->filter(fn ($a) => Storage::disk('local')->exists($a->file_path))->values();
+                // Filter attachments that exist (Firebase URLs or local files)
+                $attachmentsList = $t->attachments->filter(function ($a) {
+                    if (str_starts_with($a->file_path, 'http://') || str_starts_with($a->file_path, 'https://')) {
+                        return true; // Firebase URL - always exists
+                    }
+                    return Storage::disk('local')->exists($a->file_path);
+                })->values();
                 foreach ($t->instruments as $idx => $inst) {
                     $att = $attachmentsList->get($idx);
                     if ($att) {
+                        // Use Firebase URL directly if available, otherwise use API endpoint
+                        $attachmentUrl = (str_starts_with($att->file_path, 'http://') || str_starts_with($att->file_path, 'https://'))
+                            ? $att->file_path
+                            : "/api/accountant/transactions/{$t->id}/attachments/{$att->id}";
+                        
                         $instrumentAttachments[] = [
                             'instrumentNo' => $inst->instrument_no ?? '—',
                             'instrumentType' => $inst->instrument_type ?? '—',
-                            'attachmentUrl' => "/api/accountant/transactions/{$t->id}/attachments/{$att->id}",
+                            'attachmentUrl' => $attachmentUrl,
                         ];
                     }
                 }
